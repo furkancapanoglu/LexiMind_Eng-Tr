@@ -1,0 +1,17 @@
+# Kullanıcı verileri ve tarayıcı pencere profili
+data/
+*.lnk
+
+# Python önbellek dosyaları
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+
+# IDE ve İşletim Sistemi dosyaları
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

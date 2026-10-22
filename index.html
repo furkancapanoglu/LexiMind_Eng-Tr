@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="tr" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LexiMind — Akıllı İngilizce Kelime Defteri & Öğrenme Stüdyosu</title>
+  <link rel="icon" type="image/x-icon" href="assets/icon.ico" />
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-layout">
+    <!-- YAN MENÜ (SIDEBAR) -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo" style="padding:0; overflow:hidden; background:none;">
+          <img src="assets/icon.svg" alt="LexiMind" style="width:42px; height:42px; display:block;" />
+        </div>
+        <div class="brand-text">
+          <h1>LexiMind</h1>
+          <span>Kelime Defteri & Akıllı Öğrenme</span>
+        </div>
+      </div>
+
+      <div class="nav-section-title">Ana Menü & Defterler</div>
+      <ul class="nav-list">
+        <li class="nav-item active" onclick="App.navigate('dashboard')" data-view="dashboard">
+          <div class="nav-item-left">
+            <span class="nav-icon">🏠</span>
+            <span>Ana Panel</span>
+          </div>
+        </li>
+        <li class="nav-item" onclick="App.openTodayDailyNotebook()" data-view="daily-shortcut" id="nav-today-btn">
+          <div class="nav-item-left">
+            <span class="nav-icon">📅</span>
+            <span>Bugünün Günlük Defteri</span>
+          </div>
+          <span class="nav-badge" id="nav-today-words" style="background:var(--success);">0</span>
+        </li>
+        <li class="nav-item" onclick="App.openGeneralPackage()" data-view="general-shortcut" id="nav-general-btn">
+          <div class="nav-item-left">
+            <span class="nav-icon">🌍</span>
+            <span>Genel Kelime Paketi</span>
+          </div>
+          <span class="nav-badge" id="nav-total-words">0</span>
+        </li>
+        <li class="nav-item" onclick="App.navigate('notebook')" data-view="notebook">
+          <div class="nav-item-left">
+            <span class="nav-icon">📓</span>
+            <span>Defter & Kelime Yönetimi</span>
+          </div>
+        </li>
+        <li class="nav-item" onclick="App.navigate('dictionary')" data-view="dictionary">
+          <div class="nav-item-left">
+            <span class="nav-icon">🔍</span>
+            <span>İng-Tr Canlı Sözlük</span>
+          </div>
+        </li>
+      </ul>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; padding: 10px 12px 4px;">
+        <span class="nav-section-title" style="padding:0;">📂 Hızlı Defter Geçişi</span>
+        <button class="btn-icon" style="width:24px; height:24px; font-size:12px;" title="Yeni Defter Aç" onclick="App.openDeckModal()">➕</button>
+      </div>
+      <ul class="sidebar-decks-list" id="sidebar-decks-list"></ul>
+
+      <div class="nav-section-title" style="margin-top: 10px;">Öğrenme & Quizlet Modları</div>
+      <ul class="nav-list">
+        <li class="nav-item" onclick="App.navigate('srs')" data-view="srs">
+          <div class="nav-item-left">
+            <span class="nav-icon">🎯</span>
+            <span>Akıllı Tekrar (SM-2)</span>
+          </div>
+          <span class="nav-badge urgent" id="nav-due-count">0</span>
+        </li>
+        <li class="nav-item" onclick="App.navigate('flashcards')" data-view="flashcards">
+          <div class="nav-item-left">
+            <span class="nav-icon">🃏</span>
+            <span>3B Kelime Kartları</span>
+          </div>
+        </li>
+        <li class="nav-item" onclick="App.navigate('cloze')" data-view="cloze">
+          <div class="nav-item-left">
+            <span class="nav-icon">🧩</span>
+            <span>Cümle İçinde Öğren</span>
+          </div>
+        </li>
+        <li class="nav-item" onclick="App.navigate('write')" data-view="write">
+          <div class="nav-item-left">
+            <span class="nav-icon">✍️</span>
+            <span>Yazarak & Dinleyerek</span>
+          </div>
+        </li>
+        <li class="nav-item" onclick="App.navigate('quiz')" data-view="quiz">
+          <div class="nav-item-left">
+            <span class="nav-icon">📝</span>
+            <span>Çoktan Seçmeli Test</span>
+          </div>
+        </li>
+        <li class="nav-item" onclick="App.navigate('match')" data-view="match">
+          <div class="nav-item-left">
+            <span class="nav-icon">⚡</span>
+            <span>Eşleştirme Oyunu</span>
+          </div>
+        </li>
+        <li class="nav-item" onclick="App.navigate('stats')" data-view="stats">
+          <div class="nav-item-left">
+            <span class="nav-icon">📊</span>
+            <span>İstatistik & Analiz</span>
+          </div>
+        </li>
+      </ul>
+
+      <div class="sidebar-footer">
+        <div class="daily-goal-box">
+          <div class="daily-goal-header">
+            <span>🎯 Günlük Hedef</span>
+            <span id="daily-goal-text">0 / 15 pratik</span>
+          </div>
+          <div class="progress-bar-bg">
+            <div class="progress-bar-fill" id="daily-goal-bar" style="width: 0%;"></div>
+          </div>
+        </div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="App.openBulkModal()">📋 Toplu Ekle</button>
+          <button class="btn btn-secondary btn-sm" style="flex:1;" onclick="App.openBackupModal()">💾 Yedekle</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ANA İÇERİK ALANI -->
+    <div class="main-area">
+      <!-- ÜST ÇUBUK -->
+      <header class="topbar">
+        <div class="quick-search-wrapper">
+          <span class="quick-search-icon">🔍</span>
+          <input
+            type="text"
+            id="top-dict-input"
+            class="quick-search-input"
+            placeholder="Hızlı İngilizce veya Türkçe kelime ara ve Enter'a bas... (Ctrl+K)"
+            onkeydown="if(event.key==='Enter') App.quickLookupFromTopbar()"
+          />
+        </div>
+
+        <div class="topbar-actions">
+          <select id="global-deck-select" class="deck-selector-top" onchange="App.onGlobalDeckChange(this.value)">
+            <option value="all">📚 Tüm Kelime Setleri</option>
+          </select>
+
+          <div class="streak-pill" title="Günlük Çalışma Serisi">
+            🔥 <span id="streak-count">1</span> Gün Seri
+          </div>
+
+          <button class="btn btn-primary" onclick="App.openWordModal()">
+            ➕ Yeni Kelime Ekle
+          </button>
+
+          <button class="btn-icon" onclick="App.toggleTheme()" title="Tema Değiştir (Koyu/Açık)" id="theme-toggle-btn">
+            🌙
+          </button>
+        </div>
+      </header>
+
+      <!-- KAYDIRILABİLİR GÖRÜNÜMLER -->
+      <main class="content-scroll">
+
+        <!-- AKTİF ÇALIŞMA DEFTERİ ODAK & GEÇİŞ ÇUBUĞU -->
+        <div class="active-notebook-banner" id="active-notebook-banner">
+          <div class="active-notebook-info">
+            <div class="active-notebook-icon" id="anb-icon">🌍</div>
+            <div>
+              <div class="active-notebook-title">
+                <span id="anb-name">Genel Kelime Paketi (Tüm Kelimeler)</span>
+                <span class="pos-badge" id="anb-badge">İzole Mod Aktif</span>
+              </div>
+              <div class="active-notebook-sub" id="anb-desc">
+                Seçtiğiniz defterdeki kelimeler diğer defterlerle karışmadan tüm öğrenme ve test modlarında tek başına çalışılır.
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+            <button class="btn btn-secondary btn-sm" onclick="App.openTodayDailyNotebook()">📅 Bugünün Defterine Geç</button>
+            <button class="btn btn-secondary btn-sm" onclick="App.openGeneralPackage()">🌍 Genel Pakete Geç</button>
+            <button class="btn btn-secondary btn-sm" onclick="App.openDeckModal('daily')">🗓️ + Yeni Günlük Defter</button>
+            <button class="btn btn-secondary btn-sm" onclick="App.openDeckModal('custom')">📂 + Yeni Özel Defter</button>
+          </div>
+        </div>
+
+        <!-- 1. ANA PANEL (DASHBOARD) -->
+        <section id="view-dashboard" class="view-section active">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>Hoş Geldin! Bugün Hangi Kelimeleri Fethediyoruz? 🚀</h2>
+              <p>Aralıklı tekrar (SM-2), bağlam içinde cümle tamamlama ve Quizlet oyun modlarıyla kalıcı öğrenme.</p>
+            </div>
+            <div style="display:flex; gap:10px;">
+              <button class="btn btn-secondary" onclick="App.openDeckModal()">📁 + Yeni Set / Kategori</button>
+              <button class="btn btn-primary" onclick="App.navigate('srs')">🎯 Bugünkü Tekrarları Başlat</button>
+            </div>
+          </div>
+
+          <!-- Özet İstatistikler -->
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-icon" style="background: var(--accent-soft); color: var(--accent);">📚</div>
+              <div class="stat-info">
+                <h3 id="stat-total">0</h3>
+                <p>Defterdeki Toplam Kelime</p>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon" style="background: var(--warning-soft); color: var(--warning);">⏰</div>
+              <div class="stat-info">
+                <h3 id="stat-due">0</h3>
+                <p>Bugün Tekrar Edilecek (SM-2)</p>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon" style="background: var(--success-soft); color: var(--success);">🏆</div>
+              <div class="stat-info">
+                <h3 id="stat-mastered">0</h3>
+                <p>Uzmanlaşılan / Öğrenilen</p>
+              </div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-icon" style="background: var(--info-soft); color: var(--info);">🎯</div>
+              <div class="stat-info">
+                <h3 id="stat-accuracy">%100</h3>
+                <p>Genel Doğruluk Oranı</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Öğrenme Modları Kartları -->
+          <h3 style="margin-bottom: 14px; font-size: 17px;">🧠 Etkili Öğrenme Modları (Quizlet + Bilimsel Yöntemler)</h3>
+          <div class="modes-grid">
+            <div class="mode-card" onclick="App.navigate('srs')">
+              <div>
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">🎯</div>
+                  <span class="mode-tag">En Etkili Bilimsel Yöntem</span>
+                </div>
+                <h4>Akıllı Aralıklı Tekrar (SM-2)</h4>
+                <p>Unutma eğrisine göre tam unutmak üzere olduğun kelimeleri karşına çıkarır. Az bilinenleri sık, iyi bilinenleri seyrek sorar.</p>
+              </div>
+            </div>
+
+            <div class="mode-card" onclick="App.navigate('flashcards')">
+              <div>
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">🃏</div>
+                  <span class="mode-tag" style="background:var(--accent-soft); color:var(--accent);">Klasik Quizlet</span>
+                </div>
+                <h4>3B İnteraktif Kelime Kartları</h4>
+                <p>Sesli telaffuz (US/UK), hafıza çivisi (mnemonic) ipuçları ve örnek cümlelerle hızlı kart çevirme çalışması.</p>
+              </div>
+            </div>
+
+            <div class="mode-card" onclick="App.navigate('cloze')">
+              <div>
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">🧩</div>
+                  <span class="mode-tag">Bağlamsal Hafıza</span>
+                </div>
+                <h4>Cümle İçinde Boşluk Doldurma</h4>
+                <p>Kelimeyi tek başına ezberlemek yerine gerçek İngilizce örnek cümle içindeki boşluğu tamamlayarak kalıcı öğren.</p>
+              </div>
+            </div>
+
+            <div class="mode-card" onclick="App.navigate('write')">
+              <div>
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">✍️</div>
+                  <span class="mode-tag">Aktif Hatırlama + Dikte</span>
+                </div>
+                <h4>Yazarak & Dinleyerek Öğren</h4>
+                <p>Türkçe anlamından veya sadece İngilizce sesini dinleyerek (Dictation) kelimeyi doğru harflerle yaz.</p>
+              </div>
+            </div>
+
+            <div class="mode-card" onclick="App.navigate('quiz')">
+              <div>
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">📝</div>
+                  <span class="mode-tag" style="background:var(--info-soft); color:var(--info);">Hızlı Ölçme</span>
+                </div>
+                <h4>Çoktan Seçmeli Akıllı Test</h4>
+                <p>4 şıklı dinamik testlerle kelime dağarcığını sına, yanlış yaptığın kelimeleri anında gör ve tekrar et.</p>
+              </div>
+            </div>
+
+            <div class="mode-card" onclick="App.navigate('match')">
+              <div>
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">⚡</div>
+                  <span class="mode-tag" style="background:var(--warning-soft); color:var(--warning);">Oyun Modu</span>
+                </div>
+                <h4>Zamana Karşı Eşleştirme Oyunu</h4>
+                <p>Ekrandaki İngilizce kelimelerle Türkçe anlamlarını en kısa sürede eşleştir ve kendi rekorunu kır!</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Günlük Defterlerim Özeti -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div>
+              <h3 style="font-size: 17px;">📅 Gün Gün Kelime Defterlerim (Günlük İzole Çalışma)</h3>
+              <p style="font-size:12.5px; color:var(--text-secondary);">Her gün yazdığınız kelimeleri diğer kelimelerle karışmadan o güne özel çalışın.</p>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-primary btn-sm" onclick="App.openTodayDailyNotebook()">📅 Bugünün Defterini Aç / Yaz</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.openDeckModal('daily')">🗓️ + Yeni Gün Ekle</button>
+            </div>
+          </div>
+          <div class="modes-grid" id="dashboard-daily-decks-grid" style="margin-bottom:26px;"></div>
+
+          <!-- Özel Kelime Defterleri & Genel Paket Özeti -->
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+            <div>
+              <h3 style="font-size: 17px;">🌍 Genel Paket & 📂 Özel Kelime Defterlerim</h3>
+              <p style="font-size:12.5px; color:var(--text-secondary);">Genel kelime havuzunuz ve konularına göre ayırdığınız bağımsız kelime defterleri.</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="App.openDeckModal('custom')">📂 + Yeni Özel Defter Aç</button>
+          </div>
+          <div class="modes-grid" id="dashboard-decks-grid"></div>
+        </section>
+
+        <!-- 2. KELİME DEFTERİM (NOTEBOOK) -->
+        <section id="view-notebook" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2 id="notebook-view-title">📓 Kelime Defterim</h2>
+              <p id="notebook-view-subtitle">Defterler arasında tek tıkla geçiş yapın, hızlıca kelime yazın ve sadece seçili deftere çalışın.</p>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" onclick="App.navigate('flashcards')">🃏 Bu Defterin Kartları</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.navigate('write')">✍️ Bu Defteri Yazarak Çalış</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.navigate('quiz')">📝 Bu Defterden Test Çöz</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.openBulkModal()">📋 Toplu Yapıştır</button>
+              <button class="btn btn-secondary btn-sm" id="edit-current-deck-btn" style="display:none;" onclick="App.openEditCurrentDeck()">✏️ Defteri Düzenle</button>
+              <button class="btn btn-danger btn-sm" id="delete-current-deck-btn" style="display:none;" onclick="App.deleteCurrentDeck()">🗑️ Defteri Sil</button>
+            </div>
+          </div>
+
+          <!-- Defterler Arası Hızlı Geçiş Sekmeleri -->
+          <div class="notebook-tabs-bar" id="notebook-tabs-bar"></div>
+
+          <!-- Hızlı Günlük Kelime Yazma Çubuğu (Quick Add) -->
+          <div class="quick-entry-card">
+            <div class="quick-entry-header">
+              <span id="quick-entry-target-label">⚡ Hızlı Kelime Yaz (Seçili Deftere Anında Eklenir)</span>
+              <span style="font-weight:500; color:var(--text-muted); font-size:12px;">İpucu: İngilizce yazıp <b>✨ Oto-Çevir</b>'e veya doğrudan <b>Enter</b>'a basabilirsiniz</span>
+            </div>
+            <div class="quick-entry-grid">
+              <input
+                type="text"
+                id="qe-term"
+                class="form-control"
+                placeholder="🇬🇧 İngilizce kelime (örn: resilient)..."
+                onkeydown="if(event.key==='Enter'){event.preventDefault(); App.quickEntryAutoTranslate();}"
+              />
+              <button class="btn btn-secondary btn-sm" onclick="App.quickEntryAutoTranslate()" id="qe-auto-btn" title="Sözlükten Türkçe anlam ve örnek cümle getir">
+                ✨ Oto-Çevir
+              </button>
+              <input
+                type="text"
+                id="qe-meaning"
+                class="form-control"
+                placeholder="🇹🇷 Türkçe anlamı..."
+                onkeydown="if(event.key==='Enter'){event.preventDefault(); App.quickEntrySave();}"
+              />
+              <input
+                type="text"
+                id="qe-example"
+                class="form-control"
+                placeholder="💬 Örnek cümle veya ipucu (isteğe bağlı)..."
+                onkeydown="if(event.key==='Enter'){event.preventDefault(); App.quickEntrySave();}"
+              />
+              <button class="btn btn-primary" onclick="App.quickEntrySave()" style="white-space:nowrap;">
+                ➕ Deftere Yaz
+              </button>
+            </div>
+          </div>
+
+          <div class="filter-bar">
+            <input
+              type="text"
+              id="notebook-search"
+              class="filter-input"
+              placeholder="Bu defterdeki kelimeler içinde ara..."
+              oninput="App.renderNotebook()"
+            />
+            <button class="filter-pill active" onclick="App.setNotebookFilter('all', this)">Tümü</button>
+            <button class="filter-pill" onclick="App.setNotebookFilter('due', this)">⏰ Tekrarı Gelenler</button>
+            <button class="filter-pill" onclick="App.setNotebookFilter('fav', this)">⭐ Favoriler</button>
+            <button class="filter-pill" onclick="App.setNotebookFilter('new', this)">🆕 Yeni</button>
+            <button class="filter-pill" onclick="App.setNotebookFilter('learning', this)">📖 Öğreniliyor</button>
+            <button class="filter-pill" onclick="App.setNotebookFilter('mastered', this)">🏆 Uzmanlaşıldı</button>
+          </div>
+
+          <div class="words-list" id="notebook-words-list"></div>
+        </section>
+
+        <!-- 3. CANLI İNGİLİZCE-TÜRKÇE SÖZLÜK -->
+        <section id="view-dictionary" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>🔍 Canlı İngilizce ⇄ Türkçe Akıllı Sözlük</h2>
+              <p>Kelimenin Türkçe karşılıklarını, fonetik okunuşunu, gerçek örnek cümlelerini ve eş anlamlılarını anında bul ve tek tıkla defterine ekle.</p>
+            </div>
+          </div>
+
+          <div class="dict-search-hero">
+            <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+              <label style="font-size:13px; font-weight:700; color:var(--text-secondary);">Arama Yönü:</label>
+              <button class="filter-pill active" id="dict-dir-entr" onclick="App.setDictDirection('en-tr')">🇬🇧 İngilizce ➔ 🇹🇷 Türkçe</button>
+              <button class="filter-pill" id="dict-dir-tren" onclick="App.setDictDirection('tr-en')">🇹🇷 Türkçe ➔ 🇬🇧 İngilizce</button>
+            </div>
+            <div class="dict-input-row">
+              <input
+                type="text"
+                id="dict-query-input"
+                class="dict-main-input"
+                placeholder="Aramak istediğiniz kelimeyi veya ifadeyi yazın (örn: resilient, procrastinate, ertelemek)..."
+                onkeydown="if(event.key==='Enter') App.performDictionarySearch()"
+              />
+              <button class="btn btn-primary" style="padding: 0 26px; font-size:15px;" onclick="App.performDictionarySearch()">
+                🔍 Sözlükte Ara
+              </button>
+            </div>
+            <div style="margin-top: 12px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span style="font-size:12px; color:var(--text-muted);">Popüler Aramalar:</span>
+              <span class="word-chip" onclick="App.quickDictWord('ephemeral')">ephemeral</span>
+              <span class="word-chip" onclick="App.quickDictWord('inevitable')">inevitable</span>
+              <span class="word-chip" onclick="App.quickDictWord('coherent')">coherent</span>
+              <span class="word-chip" onclick="App.quickDictWord('adversity')">adversity</span>
+              <span class="word-chip" onclick="App.quickDictWord('crucial')">crucial</span>
+              <span class="word-chip" onclick="App.quickDictWord('fluctuate')">fluctuate</span>
+              <span class="word-chip" onclick="App.quickDictWord('enhance')">enhance</span>
+              <span class="word-chip" onclick="App.quickDictWord('simultaneously')">simultaneously</span>
+            </div>
+          </div>
+
+          <div id="dict-result-container"></div>
+        </section>
+
+        <!-- 4. AKILLI ARALIKLI TEKRAR (SM-2 SPACED REPETITION) -->
+        <section id="view-srs" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>🎯 Akıllı Aralıklı Tekrar (SM-2 Modu)</h2>
+              <p>Kartı çevir ve ne kadar kolay hatırladığını seç. Algoritma bir sonraki tekrar zamanını otomatik hesaplar.</p>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <span id="srs-counter-badge" class="streak-pill" style="background:var(--accent-soft); color:var(--accent); border-color:var(--border-highlight);">0 Kaldı</span>
+              <button class="btn btn-secondary btn-sm" onclick="App.startSRS(true)">🔄 Tüm Kelimelerle Pratik Yap</button>
+            </div>
+          </div>
+
+          <div id="srs-stage-container"></div>
+        </section>
+
+        <!-- 5. 3B KELİME KARTLARI (FLASHCARDS) -->
+        <section id="view-flashcards" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>🃏 3B İnteraktif Kelime Kartları</h2>
+              <p>Kartın üzerine tıklayarak veya <b>Boşluk (Space)</b> tuşuyla çevir, <b>← / →</b> ok tuşlarıyla ilerle, <b>S</b> tuşuyla seslendir.</p>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" onclick="App.toggleFlashcardFront()" id="fc-front-btn">Ön Yüz: 🇬🇧 İngilizce</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.shuffleFlashcards()">🔀 Karıştır</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.toggleAutoSpeak()" id="fc-autospeak-btn">🔊 Otomatik Ses: Açık</button>
+            </div>
+          </div>
+
+          <div class="flashcard-stage" id="fc-stage"></div>
+        </section>
+
+        <!-- 6. CÜMLE İÇİNDE BOŞLUK DOLDURMA (CLOZE DELETION) -->
+        <section id="view-cloze" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>🧩 Bağlam İçinde Öğrenme (Cümle Tamamlama)</h2>
+              <p>İngilizce örnek cümledeki boşluğa gelebilecek doğru kelimeyi Türkçe ipucundan yararlanarak bul!</p>
+            </div>
+            <button class="btn btn-secondary btn-sm" onclick="App.initClozeMode()">🔄 Yeni Soru Seti</button>
+          </div>
+          <div id="cloze-container"></div>
+        </section>
+
+        <!-- 7. YAZARAK & DİNLEYEREK ÖĞRENME (WRITE & DICTATION) -->
+        <section id="view-write" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>✍️ Yazarak & Dinleyerek Öğren (Active Recall)</h2>
+              <p>Türkçe anlamını görerek veya İngilizce telaffuzunu dinleyerek kelimeyi doğru harflerle yaz.</p>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-secondary btn-sm" id="write-mode-toggle" onclick="App.toggleDictationMode()">🎧 Mod: Anlam + Ses</button>
+              <button class="btn btn-secondary btn-sm" onclick="App.initWriteMode()">🔄 Sıfırla</button>
+            </div>
+          </div>
+          <div id="write-container"></div>
+        </section>
+
+        <!-- 8. ÇOKTAN SEÇMELİ TEST (QUIZ) -->
+        <section id="view-quiz" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>📝 Çoktan Seçmeli Kelime Testi</h2>
+              <p>Kelime bilgini hızlıca test et. Yanlış yaptığın kelimelerin tekrar aralığı otomatik sıklaştırılır.</p>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <button class="btn btn-secondary btn-sm" id="quiz-dir-btn" onclick="App.toggleQuizDirection()">Yön: 🇬🇧 İng ➔ 🇹🇷 Tr</button>
+              <button class="btn btn-primary btn-sm" onclick="App.initQuizMode()">🔄 Yeni Test Başlat</button>
+            </div>
+          </div>
+          <div id="quiz-container"></div>
+        </section>
+
+        <!-- 9. EŞLEŞTİRME OYUNU (MATCH GAME) -->
+        <section id="view-match" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>⚡ Zamana Karşı Eşleştirme Oyunu (Match)</h2>
+              <p>İngilizce kelimelerle Türkçe anlamlarını en hızlı şekilde eşleştir! En iyi süreni geçmeye çalış.</p>
+            </div>
+            <div style="display:flex; gap:12px; align-items:center;">
+              <div class="streak-pill" style="background:var(--info-soft); color:var(--info); border-color:transparent;">
+                ⏱️ Süre: <span id="match-timer">0.0 sn</span>
+              </div>
+              <div class="streak-pill" style="background:var(--success-soft); color:var(--success); border-color:transparent;">
+                🏆 Rekor: <span id="match-best">--</span>
+              </div>
+              <button class="btn btn-primary btn-sm" onclick="App.initMatchGame()">🎮 Yeni Oyun</button>
+            </div>
+          </div>
+          <div id="match-container"></div>
+        </section>
+
+        <!-- 10. İSTATİSTİKLER & ANALİZ -->
+        <section id="view-stats" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>📊 Öğrenme İstatistikleri & Zorlu Kelimeler</h2>
+              <p>Kelime hakimiyet dağılımın, çalışma istikrarın ve en çok hata yaptığın kelimeler.</p>
+            </div>
+          </div>
+          <div id="stats-container"></div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- MODAL 1: YENİ KELİME EKLE / DÜZENLE -->
+  <div class="modal-backdrop" id="word-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="word-modal-title">➕ Kelime Defterine Ekle</h3>
+        <button class="btn-icon" onclick="App.closeModal('word-modal')">✕</button>
+      </div>
+
+      <input type="hidden" id="wm-id" />
+
+      <div class="form-group">
+        <label>İngilizce Kelime veya İfade *</label>
+        <div style="display:flex; gap:8px;">
+          <input
+            type="text"
+            id="wm-term"
+            class="form-control"
+            placeholder="Örn: resilient, break the ice, inevitable..."
+            onkeydown="if(event.key==='Enter'){event.preventDefault(); App.autoFillWordModal();}"
+          />
+          <button type="button" class="btn btn-primary" onclick="App.autoFillWordModal()" id="wm-autofill-btn" style="white-space:nowrap;">
+            ✨ Sözlükten Otomatik Doldur
+          </button>
+        </div>
+        <small style="color:var(--text-muted); font-size:11.5px; margin-top:4px; display:block;">
+          İngilizce kelimeyi yazıp <b>"Sözlükten Otomatik Doldur"</b> butonuna basarsanız Türkçe anlamı, okunuşu ve örnek cümlesi otomatik gelir.
+        </small>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Türkçe Anlamı *</label>
+          <input type="text" id="wm-meaning" class="form-control" placeholder="Örn: dayanıklı, dirençli" />
+        </div>
+        <div class="form-group">
+          <label>Kelime Seti (Kategori)</label>
+          <select id="wm-deck" class="form-control"></select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Fonetik Okunuş (İsteğe Bağlı)</label>
+          <input type="text" id="wm-phonetic" class="form-control" placeholder="/rɪˈzɪl.i.ənt/" />
+        </div>
+        <div class="form-group">
+          <label>Kelime Türü</label>
+          <select id="wm-pos" class="form-control">
+            <option value="noun">İsim (noun)</option>
+            <option value="verb">Fiil (verb)</option>
+            <option value="adjective">Sıfat (adjective)</option>
+            <option value="adverb">Zarf (adverb)</option>
+            <option value="phrasal verb">Phrasal Verb</option>
+            <option value="idiom">Deyim (Idiom)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Eş Anlamlılar (Synonyms)</label>
+        <input type="text" id="wm-synonyms" class="form-control" placeholder="Örn: tough, strong, adaptable" />
+      </div>
+
+      <div class="form-group">
+        <label>İngilizce Örnek Cümle (Bağlam içinde öğrenme için önerilir)</label>
+        <input type="text" id="wm-example" class="form-control" placeholder="Örn: Children are often much more resilient than adults realize." />
+      </div>
+
+      <div class="form-group">
+        <label>Örnek Cümlenin Türkçesi</label>
+        <input type="text" id="wm-example-tr" class="form-control" placeholder="Örn: Çocuklar genellikle yetişkinlerin fark ettiğinden çok daha dirençlidir." />
+      </div>
+
+      <div class="form-group">
+        <label>💡 Hafıza Çivisi / Kişisel İpucu (Mnemonic - Akılda tutmayı 3x kolaylaştırır)</label>
+        <input type="text" id="wm-mnemonic" class="form-control" placeholder="Örn: Lastik gibi esneyip hemen toparlanan, DİRENÇLİ..." />
+      </div>
+
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:18px;">
+        <button class="btn btn-secondary" onclick="App.closeModal('word-modal')">İptal</button>
+        <button class="btn btn-primary" onclick="App.saveWordFromModal()">💾 Kelimeyi Kaydet</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 2: TOPLU KELİME EKLE (QUIZLET TARZI) -->
+  <div class="modal-backdrop" id="bulk-modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>📋 Toplu Kelime Yapıştır (Quizlet Formatı)</h3>
+        <button class="btn-icon" onclick="App.closeModal('bulk-modal')">✕</button>
+      </div>
+      <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">
+        Her satıra bir kelime gelecek şekilde <code>İngilizce - Türkçe - Örnek Cümle (opsiyonel)</code> veya Tab/Noktalı virgül ile ayırarak yapıştırabilirsiniz:
+      </p>
+      <div class="form-group">
+        <label>Eklenecek Set (Kategori)</label>
+        <select id="bulk-deck-select" class="form-control"></select>
+      </div>
+      <div class="form-group">
+        <label>Kelime Listesi</label>
+        <textarea
+          id="bulk-textarea"
+          class="form-control"
+          rows="8"
+          placeholder="inevitable - kaçınılmaz, kesin - Change is inevitable.&#10;accomplish - başarmak, tamamlamak&#10;persuade - ikna etmek"
+        ></textarea>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button class="btn btn-secondary" onclick="App.closeModal('bulk-modal')">İptal</button>
+        <button class="btn btn-primary" onclick="App.importBulkText()">➕ Tümünü Deftere Ekle</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 3: YENİ DEFTER (GÜNLÜK DEFTER VEYA ÖZEL DEFTER) OLUŞTUR -->
+  <div class="modal-backdrop" id="deck-modal">
+    <div class="modal-content" style="max-width:480px;">
+      <div class="modal-header">
+        <h3 id="deck-modal-title">📁 Yeni Kelime Defteri Oluştur</h3>
+        <button class="btn-icon" onclick="App.closeModal('deck-modal')">✕</button>
+      </div>
+      <input type="hidden" id="dm-edit-id" />
+      <div class="form-group">
+        <label>Defter Türü</label>
+        <select id="dm-type" class="form-control" onchange="App.onDeckModalTypeChange(this.value)">
+          <option value="daily">📅 Günlük Kelime Defteri (Gün Gün İzole Çalışma)</option>
+          <option value="custom">📂 Özel Kelime Defteri / Paket (Konu & Kategori Bazlı)</option>
+        </select>
+      </div>
+      <div class="form-group" id="dm-date-group">
+        <label>Günlük Tarihi</label>
+        <input type="date" id="dm-date" class="form-control" onchange="App.onDeckModalDateChange(this.value)" />
+      </div>
+      <div class="form-group">
+        <label>Defter Adı *</label>
+        <input type="text" id="dm-name" class="form-control" placeholder="Örn: 22 Ekim 2026 - Günlük Defter veya Dizi Kelimeleri..." />
+      </div>
+      <div class="form-group">
+        <label>Not / Açıklama (İsteğe Bağlı)</label>
+        <input type="text" id="dm-desc" class="form-control" placeholder="Örn: Bugün makalede ve dizide karşılaştığım kelimeler..." />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Simge (Emoji)</label>
+          <input type="text" id="dm-icon" class="form-control" value="📅" />
+        </div>
+        <div class="form-group">
+          <label>Renk</label>
+          <input type="color" id="dm-color" class="form-control" value="#10b981" style="height:41px; padding:4px;" />
+        </div>
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:14px;">
+        <button class="btn btn-secondary" onclick="App.closeModal('deck-modal')">İptal</button>
+        <button class="btn btn-primary" onclick="App.saveNewDeck()">📁 Defteri Oluştur ve Aç</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL 4: YEDEKLEME (JSON / CSV DIŞA & İÇE AKTARMA) -->
+  <div class="modal-backdrop" id="backup-modal">
+    <div class="modal-content" style="max-width:520px;">
+      <div class="modal-header">
+        <h3>💾 Veri Yedekleme & Dışa / İçe Aktarma</h3>
+        <button class="btn-icon" onclick="App.closeModal('backup-modal')">✕</button>
+      </div>
+      <p style="font-size:13.5px; color:var(--text-secondary); margin-bottom:16px;">
+        Kelimeleriniz hem tarayıcı hafızasında (LocalStorage) hem de yerel <code>data/kelime_defteri_yedek.json</code> dosyasında otomatik korunur. Ayrıca istediğiniz zaman dışa veya içe aktarabilirsiniz:
+      </p>
+      <div style="display:flex; flex-direction:column; gap:12px;">
+        <button class="btn btn-primary" onclick="App.exportJSON()">📥 Tüm Kelime Defterini İndir (.JSON)</button>
+        <button class="btn btn-secondary" onclick="App.exportCSV()">📊 Excel Uyumlu Tablo Olarak İndir (.CSV)</button>
+        <div style="border-top:1px solid var(--border-color); margin:8px 0;"></div>
+        <label class="btn btn-secondary" style="cursor:pointer;">
+          📤 Yedek Dosyası Yükle (.JSON)
+          <input type="file" accept=".json" style="display:none;" onchange="App.importJSONFile(event)" />
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast-container" id="toast-container"></div>
+
+  <script src="dictionary_db.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
