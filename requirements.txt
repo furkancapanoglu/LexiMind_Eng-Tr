@@ -1,0 +1,2 @@
+# LexiMind hiçbir harici Python paketi gerektirmez (Zero External Dependencies).
+# Python 3.8+ standart kütüphanesi (http.server, urllib, json, threading, struct, zlib) ile doğrudan çalışır.
