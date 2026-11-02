@@ -339,6 +339,7 @@ def lookup_datamuse_and_wiktionary(word: str) -> dict:
     extra = {
         "phonetic": "",
         "pos": "",
+        "cefr": "",
         "definitions": [],
         "synonyms": [],
         "antonyms": [],
@@ -362,6 +363,21 @@ def lookup_datamuse_and_wiktionary(word: str) -> dict:
             for tag in item.get("tags", []):
                 if tag in pos_map and not extra["pos"]:
                     extra["pos"] = pos_map[tag]
+                elif isinstance(tag, str) and tag.startswith("f:"):
+                    try:
+                        freq = float(tag[2:])
+                        if freq >= 180:
+                            extra["cefr"] = "A2"
+                        elif freq >= 35:
+                            extra["cefr"] = "B1"
+                        elif freq >= 7:
+                            extra["cefr"] = "B2"
+                        elif freq >= 1.2:
+                            extra["cefr"] = "C1"
+                        else:
+                            extra["cefr"] = "C2"
+                    except Exception:
+                        pass
             for d in item.get("defs", [])[:4]:
                 if "\t" in d:
                     p_code, d_text = d.split("\t", 1)
@@ -541,6 +557,7 @@ class LexiMindRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "word": en_word,
                         "phonetic": en_gtx.get("phonetic") or dm_extra.get("phonetic") or "",
                         "pos": en_gtx.get("pos") or dm_extra.get("pos") or "noun",
+                        "cefr": dm_extra.get("cefr") or "",
                         "audio": dm_extra.get("audio") or "",
                         "definitions": en_gtx.get("definitions") or dm_extra.get("definitions") or [],
                         "synonyms": merged_syns,
@@ -604,6 +621,7 @@ class LexiMindRequestHandler(http.server.SimpleHTTPRequestHandler):
                         "word": query,
                         "phonetic": gtx_res.get("phonetic") or head_gtx_res.get("phonetic") or dm_res.get("phonetic") or "",
                         "pos": gtx_res.get("pos") or head_gtx_res.get("pos") or dm_res.get("pos") or "noun",
+                        "cefr": dm_res.get("cefr") or "",
                         "audio": dm_res.get("audio") or "",
                         "definitions": gtx_res.get("definitions") or head_gtx_res.get("definitions") or dm_res.get("definitions") or [],
                         "synonyms": merged_syns,

@@ -50,6 +50,13 @@
           </div>
           <span class="nav-badge" id="nav-total-words">0</span>
         </li>
+        <li class="nav-item" onclick="App.openHardWordsPackage()" data-view="hard-shortcut" id="nav-hard-btn">
+          <div class="nav-item-left">
+            <span class="nav-icon">🔥</span>
+            <span>Zorlandığım Kelimeler</span>
+          </div>
+          <span class="nav-badge urgent" id="nav-hard-words">0</span>
+        </li>
         <li class="nav-item" onclick="App.navigate('notebook')" data-view="notebook">
           <div class="nav-item-left">
             <span class="nav-icon">📓</span>
@@ -119,15 +126,36 @@
             <span>Eşleştirme Oyunu</span>
           </div>
         </li>
+        <li class="nav-item" onclick="App.navigate('scramble')" data-view="scramble">
+          <div class="nav-item-left">
+            <span class="nav-icon">🔤</span>
+            <span>Harf Blokları (Scramble)</span>
+          </div>
+        </li>
+        <li class="nav-item" onclick="App.navigate('reading')" data-view="reading">
+          <div class="nav-item-left">
+            <span class="nav-icon">📖</span>
+            <span>Bağlamsal Okuma Akışı</span>
+          </div>
+        </li>
         <li class="nav-item" onclick="App.navigate('stats')" data-view="stats">
           <div class="nav-item-left">
             <span class="nav-icon">📊</span>
-            <span>İstatistik & Analiz</span>
+            <span>İstatistik &amp; Rozetler</span>
           </div>
         </li>
       </ul>
 
       <div class="sidebar-footer">
+        <div class="xp-sidebar-box" id="sidebar-xp-box" onclick="App.navigate('stats')" style="cursor:pointer;" title="Seviye ve Başarı Rozetlerini Gör">
+          <div style="display:flex; justify-content:space-between; align-items:center; font-size:12px; font-weight:700; margin-bottom:5px;">
+            <span id="sidebar-lvl-title">⭐ Seviye 1 • Başlangıç</span>
+            <span id="sidebar-xp-text" style="color:var(--accent);">0 XP</span>
+          </div>
+          <div class="progress-bar-bg" style="height:6px;">
+            <div class="xp-bar-fill" id="sidebar-xp-bar" style="width:0%;"></div>
+          </div>
+        </div>
         <div class="daily-goal-box">
           <div class="daily-goal-header">
             <span>🎯 Günlük Hedef</span>
@@ -168,17 +196,48 @@
             <option value="all">📚 Tüm Kelime Setleri</option>
           </select>
 
-          <div class="streak-pill" title="Günlük Çalışma Serisi">
-            🔥 <span id="streak-count">1</span> Gün Seri
+          <div class="streak-pill" id="streak-pill-box" title="Günlük Çalışma Serisi ve Haftalık Seri Dondurma Kalkanı">
+            🔥 <span id="streak-count">1</span> Gün Seri <span id="streak-shield-indicator" style="font-size:12px; margin-left:2px;">🛡️</span>
           </div>
 
           <button class="btn btn-primary" onclick="App.openWordModal()">
             ➕ Yeni Kelime Ekle
           </button>
 
-          <button class="btn-icon" onclick="App.toggleTheme()" title="Tema Değiştir (Koyu/Açık)" id="theme-toggle-btn">
-            🌙
+          <button class="btn btn-secondary btn-sm" onclick="App.toggleZenMode()" title="Tam Odak (Zen) Çalışma Modu (Alt+Z)">
+            🧘 Odak
           </button>
+
+          <button class="btn btn-secondary btn-sm" onclick="App.toggleSound()" title="Sesli Telaffuzu Aç / Kapat (Ctrl+M)" id="sound-toggle-btn">
+            🔊 Ses: Açık
+          </button>
+
+          <div class="theme-picker-wrap">
+            <button class="btn-icon" onclick="App.toggleThemeMenu(event)" title="Renk Atmosferi &amp; Tema Seç" id="theme-toggle-btn">
+              🎨
+            </button>
+            <div class="theme-popover" id="theme-popover">
+              <div style="font-size:11px; font-weight:800; color:var(--text-muted); padding:4px 8px; text-transform:uppercase;">🎨 Atmosfer &amp; Tema Seç</div>
+              <button class="theme-opt-btn" data-theme-opt="dark" onclick="App.setTheme('dark')">
+                <span>🌌 Gece İndigo</span><span class="theme-dot" style="background:#6366f1;"></span>
+              </button>
+              <button class="theme-opt-btn" data-theme-opt="emerald" onclick="App.setTheme('emerald')">
+                <span>🌲 Zümrüt Orman</span><span class="theme-dot" style="background:#10b981;"></span>
+              </button>
+              <button class="theme-opt-btn" data-theme-opt="ocean" onclick="App.setTheme('ocean')">
+                <span>🌊 Okyanus Mavisi</span><span class="theme-dot" style="background:#0ea5e9;"></span>
+              </button>
+              <button class="theme-opt-btn" data-theme-opt="amethyst" onclick="App.setTheme('amethyst')">
+                <span>🔮 Ametist Mor</span><span class="theme-dot" style="background:#a855f7;"></span>
+              </button>
+              <button class="theme-opt-btn" data-theme-opt="sepia" onclick="App.setTheme('sepia')">
+                <span>📜 Sıcak Sepya (Kitap)</span><span class="theme-dot" style="background:#d97706;"></span>
+              </button>
+              <button class="theme-opt-btn" data-theme-opt="light" onclick="App.setTheme('light')">
+                <span>☀️ Ferah Aydınlık</span><span class="theme-dot" style="background:#e2e8f0;"></span>
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -343,7 +402,29 @@
                   <span class="mode-tag" style="background:var(--warning-soft); color:var(--warning);">Oyun Modu</span>
                 </div>
                 <h4>Zamana Karşı Eşleştirme Oyunu</h4>
-                <p>Ekrandaki İngilizce kelimelerle Türkçe anlamlarını en kısa sürede eşleştir ve kendi rekorunu kır!</p>
+                <p>Ekrandaki İngilizce kelimelerle Türkçe anlamlarını veya eş anlamlılarını en kısa sürede eşleştir!</p>
+              </div>
+            </div>
+
+            <div class="mode-card" onclick="App.navigate('scramble')">
+              <div>
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">🔤</div>
+                  <span class="mode-tag" style="background:var(--accent-soft); color:var(--accent);">Spelling Mini-Oyun</span>
+                </div>
+                <h4>Harf Blokları (Kelime İnşası)</h4>
+                <p>Karışık harf kutucuklarına tıklayarak veya klavyeden basarak kelimenin doğru yazılışını inşa et.</p>
+              </div>
+            </div>
+
+            <div class="mode-card" onclick="App.navigate('reading')">
+              <div>
+                <div class="mode-card-header">
+                  <div class="mode-card-icon">📖</div>
+                  <span class="mode-tag" style="background:var(--success-soft); color:var(--success);">Okuma &amp; Podcast</span>
+                </div>
+                <h4>Bağlamsal Okuma &amp; Dinleme Akışı</h4>
+                <p>Seçili defterin örnek cümlelerini kitap akışında oku, kelimelerin üzerine gelince anlamını gör veya sırayla dinle.</p>
               </div>
             </div>
           </div>
@@ -418,6 +499,7 @@
                 id="qe-meaning"
                 class="form-control"
                 placeholder="🇹🇷 Türkçe anlamı..."
+                oninput="App.renderMeaningChips('qe-meaning', 'qe-meaning-chips')"
                 onkeydown="if(event.key==='Enter'){event.preventDefault(); App.quickEntrySave();}"
               />
               <input
@@ -431,6 +513,7 @@
                 ➕ Deftere Yaz
               </button>
             </div>
+            <div id="qe-meaning-chips" class="meaning-chips-row" style="display:none;"></div>
             <div id="qe-duplicate-banner" style="display:none; margin-top:10px;"></div>
           </div>
 
@@ -612,6 +695,37 @@
           <div id="match-container"></div>
         </section>
 
+        <!-- 9B. HARF BLOKLARI / KELİME İNŞASI OYUNU (WORD SCRAMBLE) -->
+        <section id="view-scramble" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>🔤 Harf Blokları — Kelime İnşası Oyunu</h2>
+              <p>Karışık verilen harf kutucuklarına tıklayarak veya klavyeden harflere basarak İngilizce kelimeyi doğru sırayla diz! (Silmek için Backspace)</p>
+            </div>
+            <div style="display:flex; gap:10px; align-items:center;">
+              <button class="btn btn-secondary btn-sm" onclick="App.toggleZenMode()">🧘 Odak Modu</button>
+              <button class="btn btn-primary btn-sm" onclick="App.initScrambleMode()">🔄 Yeni Tur</button>
+            </div>
+          </div>
+          <div id="scramble-container"></div>
+        </section>
+
+        <!-- 9C. İNTERAKTİF BAĞLAMSAL OKUMA & DİNLEME AKIŞI (READING STREAM) -->
+        <section id="view-reading" class="view-section">
+          <div class="section-header">
+            <div class="section-title">
+              <h2>📖 Bağlamsal Okuma &amp; Podcast Dinleme Akışı</h2>
+              <p>Seçili defterdeki kelimeleri gerçek cümle akışı içinde okuyun; renkli kelimelerin üzerine gelerek anlam ve okunuşu görün veya tümünü sesli dinleyin.</p>
+            </div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="btn btn-secondary btn-sm" id="reading-tr-btn" onclick="App.toggleReadingTranslations()">👁️ Türkçe Çeviriler: Gizli</button>
+              <button class="btn btn-secondary btn-sm" id="reading-cloze-btn" onclick="App.toggleReadingMask()">🧩 Boşluklu Okuma: Kapalı</button>
+              <button class="btn btn-primary btn-sm" id="reading-podcast-btn" onclick="App.toggleReadingPodcast()">🎧 Tümünü Sesli Oku (Podcast)</button>
+            </div>
+          </div>
+          <div id="reading-container"></div>
+        </section>
+
         <!-- 10. İSTATİSTİKLER & ANALİZ -->
         <section id="view-stats" class="view-section">
           <div class="section-header">
@@ -704,8 +818,9 @@
 
       <div class="form-row">
         <div class="form-group">
-          <label>Türkçe Anlamı *</label>
-          <input type="text" id="wm-meaning" class="form-control" placeholder="Örn: dayanıklı, dirençli" />
+          <label>Türkçe Anlamı * <small style="color:var(--text-muted); font-weight:500;">(İstenmeyen yan anlamı × ile silebilirsiniz)</small></label>
+          <input type="text" id="wm-meaning" class="form-control" placeholder="Örn: dayanıklı, dirençli" oninput="App.renderMeaningChips('wm-meaning', 'wm-meaning-chips')" />
+          <div id="wm-meaning-chips" class="meaning-chips-row" style="display:none;"></div>
         </div>
         <div class="form-group">
           <label>Kelime Seti (Kategori)</label>
@@ -910,6 +1025,10 @@
     </div>
   </div>
 
+  <button class="zen-exit-pill" onclick="App.toggleZenMode()">
+    🧘 Odak Modundan Çık <kbd class="kbd">Alt+Z</kbd>
+  </button>
+  <canvas id="confetti-canvas"></canvas>
   <div class="toast-container" id="toast-container"></div>
 
   <script src="dictionary_db.js"></script>

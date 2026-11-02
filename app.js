@@ -17,6 +17,7 @@ const App = {
     dailyGoal: 15,
     bestMatchTime: null,
     studyHistory: {},
+    soundEnabled: true,
     updatedAt: 0
   },
 
@@ -72,11 +73,26 @@ const App = {
   matchTimerId: null,
   matchMode: "en-tr", // "en-tr" | "en-syn"
 
+  // Harf Blokları (Word Scramble) durumu
+  scrambleList: [],
+  scrambleIndex: 0,
+  scrambleScore: 0,
+  scramblePool: [],
+  scrambleSlots: [],
+  scrambleAnswered: false,
+
+  // Bağlamsal Okuma & Podcast Akışı durumu
+  readingShowTr: false,
+  readingMaskWords: false,
+  readingPodcastActive: false,
+  readingPodcastIndex: -1,
+
   async init() {
     await this.loadState();
     this.ensureDefaultAndDailyDecks();
     this.checkStreak();
     this.applyTheme();
+    this.applySoundSetting();
     this.populateDeckSelectors();
     this.updateTopCounters();
     this.updateActiveNotebookBanner();
@@ -242,7 +258,13 @@ const App = {
   },
 
   isVirtualSelection(id = this.state.selectedDeckId) {
-    return id === "all" || this.isRangeSelection(id);
+    return id === "all" || id === "hard" || this.isRangeSelection(id);
+  },
+
+  getHardWords() {
+    return this.state.words
+      .filter(w => (w.wrongCount || 0) > 0)
+      .sort((a, b) => (b.wrongCount || 0) - (a.wrongCount || 0) || (a.easeFactor || 2.5) - (b.easeFactor || 2.5));
   },
 
   parseRange(id = this.state.selectedDeckId) {
@@ -360,7 +382,7 @@ const App = {
     const activeView = document.querySelector(".view-section.active")?.id?.replace("view-", "") || "notebook";
     const decks = this.getDecksForDate(target);
     const id = decks.length === 1 ? decks[0].id : this.makeRangeId(target, target);
-    const studyViews = ["srs", "flashcards", "cloze", "write", "quiz", "match", "stats", "notebook"];
+    const studyViews = ["srs", "learn", "flashcards", "cloze", "write", "quiz", "match", "scramble", "reading", "stats", "notebook"];
     this.selectDeck(id, !studyViews.includes(activeView));
   },
 
@@ -475,32 +497,56 @@ const App = {
     return activeDays;
   },
 
-  // Gerçek zamanlı ardışık gün serisini (Streak) hesaplar
+  // Gerçek zamanlı ardışık gün serisini (Streak) + Haftalık Seri Dondurma Kalkanını (Streak Freeze) hesaplar
   recalculateStreak() {
     const today = this.getTodayStr();
     const yesterday = this.addDaysIso(today, -1);
+    const twoDaysAgo = this.addDaysIso(today, -2);
     const activeDays = this.getActiveStudyDaysSet();
+    this._frozenDatesSet = new Set();
 
     // Bugünkü pratik sayısını studyHistory ile senkronize et
     const todayCount = (this.state.studyHistory && this.state.studyHistory[today]) || 0;
     this.state.dailyProgress = todayCount;
 
+    // Haftada en fazla 2 adet "1 günlük boşluk dondurma kalkanı" (Streak Freeze) hakkı
+    let shieldsRemaining = 2;
     let cursor = null;
+
     if (activeDays.has(today)) {
       cursor = today;
     } else if (activeDays.has(yesterday)) {
       cursor = yesterday;
+    } else if (activeDays.has(twoDaysAgo) && shieldsRemaining > 0) {
+      // Dün çalışılamadıysa ama önceki gün çalışıldıysa 1 kalkan dünü korur
+      this._frozenDatesSet.add(yesterday);
+      shieldsRemaining--;
+      cursor = twoDaysAgo;
     } else {
       this.state.streak = 0;
+      this._shieldsRemaining = shieldsRemaining;
       return 0;
     }
 
     let count = 0;
-    while (cursor && activeDays.has(cursor)) {
-      count++;
-      cursor = this.addDaysIso(cursor, -1);
+    while (cursor) {
+      if (activeDays.has(cursor)) {
+        count++;
+        cursor = this.addDaysIso(cursor, -1);
+      } else {
+        const prevDay = this.addDaysIso(cursor, -1);
+        if (shieldsRemaining > 0 && activeDays.has(prevDay)) {
+          // Aradaki tek günlük boşluğu Seri Dondurma Kalkanı ile köprüle
+          this._frozenDatesSet.add(cursor);
+          shieldsRemaining--;
+          cursor = prevDay;
+        } else {
+          break;
+        }
+      }
     }
     this.state.streak = count;
+    this._shieldsRemaining = shieldsRemaining;
     return count;
   },
 
@@ -525,27 +571,230 @@ const App = {
     if (this.state.dailyProgress === 1 && prevStreak >= 1) {
       this.toast(`🔥 Günlük serin devam ediyor: ${this.state.streak} Gün Seri!`);
     } else if (this.state.dailyProgress === this.state.dailyGoal) {
+      this.launchConfetti();
+      this.playFeedbackChime("celebrate");
       this.toast("🎉 Tebrikler! Günlük çalışma hedefini tamamladın!");
     }
     this.saveState();
   },
 
-  // Tema Yönetimi
+  // Tema & Atmosfer Yönetimi (6 Özel Tema + Zen Odak Modu)
   applyTheme() {
-    document.documentElement.setAttribute("data-theme", this.state.theme || "dark");
-    const btn = document.getElementById("theme-toggle-btn");
-    if (btn) btn.textContent = this.state.theme === "light" ? "🌙" : "☀️";
+    const theme = this.state.theme || "dark";
+    document.documentElement.setAttribute("data-theme", theme);
+    document.querySelectorAll(".theme-opt-btn").forEach(b => {
+      b.classList.toggle("active", b.getAttribute("data-theme-opt") === theme);
+    });
+  },
+
+  toggleThemeMenu(e) {
+    if (e) e.stopPropagation();
+    const pop = document.getElementById("theme-popover");
+    if (pop) pop.classList.toggle("open");
+  },
+
+  setTheme(themeName) {
+    this.state.theme = themeName || "dark";
+    this.applyTheme();
+    document.getElementById("theme-popover")?.classList.remove("open");
+    this.saveState();
+    const names = {
+      dark: "🌌 Gece İndigo",
+      emerald: "🌲 Zümrüt Orman",
+      ocean: "🌊 Okyanus Mavisi",
+      amethyst: "🔮 Ametist Mor",
+      sepia: "📜 Sıcak Sepya (Kitap)",
+      light: "☀️ Ferah Aydınlık"
+    };
+    this.toast(`🎨 Tema değiştirildi: ${names[this.state.theme] || this.state.theme}`);
   },
 
   toggleTheme() {
-    this.state.theme = this.state.theme === "light" ? "dark" : "light";
-    this.applyTheme();
+    this.setTheme(this.state.theme === "light" ? "dark" : "light");
+  },
+
+  toggleZenMode() {
+    document.body.classList.toggle("zen-mode");
+    const isZen = document.body.classList.contains("zen-mode");
+    if (isZen) {
+      this.toast("🧘 Tam Odak (Zen) Modu aktif! Çıkmak için sağ üstteki butona veya Alt+Z tuşuna basın.");
+    }
+  },
+
+  // Hafif WebAudio Bildirim Tınıları (Ses açıksa çalışır)
+  playFeedbackChime(type = "correct") {
+    if (this.state.soundEnabled === false) return;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      if (!this._audioCtx) this._audioCtx = new AudioCtx();
+      const ctx = this._audioCtx;
+      if (ctx.state === "suspended") ctx.resume();
+
+      const playNote = (freq, startOffset, duration, vol = 0.06, wave = "sine") => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = wave;
+        osc.frequency.setValueAtTime(freq, ctx.currentTime + startOffset);
+        gain.gain.setValueAtTime(vol, ctx.currentTime + startOffset);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + startOffset + duration);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + startOffset);
+        osc.stop(ctx.currentTime + startOffset + duration);
+      };
+
+      if (type === "correct") {
+        playNote(587.33, 0, 0.11, 0.05); // D5
+        playNote(880.0, 0.08, 0.18, 0.06); // A5
+      } else if (type === "wrong") {
+        playNote(240, 0, 0.16, 0.05, "triangle");
+        playNote(190, 0.1, 0.2, 0.05, "triangle");
+      } else if (type === "celebrate") {
+        playNote(523.25, 0, 0.12, 0.06);
+        playNote(659.25, 0.09, 0.12, 0.06);
+        playNote(783.99, 0.18, 0.14, 0.06);
+        playNote(1046.5, 0.28, 0.32, 0.07);
+      }
+    } catch (_) {}
+  },
+
+  // Zarif Konfeti Kutlama Efekti
+  launchConfetti() {
+    const canvas = document.getElementById("confetti-canvas");
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    const colors = ["#6366f1", "#10b981", "#f59e0b", "#ec4899", "#0ea5e9", "#a855f7"];
+    const pieces = Array.from({ length: 75 }, () => ({
+      x: canvas.width * (0.2 + Math.random() * 0.6),
+      y: canvas.height * 0.35,
+      vx: (Math.random() - 0.5) * 14,
+      vy: -Math.random() * 12 - 4,
+      size: 6 + Math.random() * 5,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rot: Math.random() * Math.PI * 2,
+      vRot: (Math.random() - 0.5) * 0.25
+    }));
+
+    let frame = 0;
+    const animate = () => {
+      frame++;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      let alive = false;
+      pieces.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.38;
+        p.vx *= 0.99;
+        p.rot += p.vRot;
+        if (p.y < canvas.height + 20) alive = true;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        ctx.globalAlpha = Math.max(0, 1 - frame / 95);
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.65);
+        ctx.restore();
+      });
+      if (alive && frame < 95) {
+        requestAnimationFrame(animate);
+      } else {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    };
+    requestAnimationFrame(animate);
+  },
+
+  // CEFR Zorluk Seviyesi Tahmini (A2, B1, B2, C1, C2)
+  getWordCEFR(w) {
+    if (!w) return "B1";
+    if (w.cefr) return w.cefr;
+    const raw = (w.term || "").trim().toLowerCase();
+    const head = raw.replace(/\s+(to|with|of|in|on|for|at|from|about|by|into|over)$/i, "").trim();
+    if (!head) return "B1";
+    // Akademik ekler ve kelime uzunluğuna göre hızlı dilbilimsel tahmin
+    if (/(itious|aneous|ibility|logical|ominantly|susceptible|formidable|inevitable|ephemeral|resilient|simultaneously|procrastinate|indifferent|trifling|mandatory|deception|repeal|culpability)$/.test(head)) {
+      return head.length >= 10 ? "C1" : "B2";
+    }
+    if (/(tion|sion|ment|ance|ence|able|ible|ous|ive|ize|ise|ify|ate|al|ic)$/.test(head)) {
+      return head.length >= 9 ? "C1" : "B2";
+    }
+    if (raw.includes(" ") || head.length >= 8) return "B2";
+    if (head.length >= 5) return "B1";
+    return "A2";
+  },
+
+  // XP, Seviye ve Başarı Rozetleri Hesaplayıcı
+  getXPAndAchievements() {
+    const hist = this.state.studyHistory || {};
+    const totalPractices = Object.values(hist).reduce((s, n) => s + (n || 0), 0);
+    const totalWords = this.state.words.length;
+    const masteredWords = this.state.words.filter(w => w.status === "mastered" || w.status === "familiar").length;
+    const totalCorrect = this.state.words.reduce((s, w) => s + (w.correctCount || 0), 0);
+    const streak = this.state.streak || 0;
+    const bestMatch = this.state.bestMatchTime || null;
+
+    const xp = totalPractices * 10 + totalWords * 15 + masteredWords * 25;
+    const levelThresholds = [
+      { lvl: 1, min: 0, max: 300, title: "Başlangıç" },
+      { lvl: 2, min: 300, max: 900, title: "Kelime Gezgini" },
+      { lvl: 3, min: 900, max: 2000, title: "Kelime Avcısı" },
+      { lvl: 4, min: 2000, max: 4000, title: "Dil Ustası" },
+      { lvl: 5, min: 4000, max: 7500, title: "Akademik Bilgin" },
+      { lvl: 6, min: 7500, max: 15000, title: "LexiMind Efsanesi" }
+    ];
+    let curTier = levelThresholds[0];
+    for (const t of levelThresholds) {
+      if (xp >= t.min) curTier = t;
+    }
+    const progressPct = Math.min(100, Math.round(((xp - curTier.min) / Math.max(1, curTier.max - curTier.min)) * 100));
+
+    const badges = [
+      { icon: "🌱", title: "İlk Adım", desc: "Deftere en az 10 kelime ekle", unlocked: totalWords >= 10 },
+      { icon: "📚", title: "Kelime Koleksiyoneri", desc: "100+ kelimelik arşive ulaş", unlocked: totalWords >= 100 },
+      { icon: "🏛️", title: "Akademik Kütüphane", desc: "250+ kelime barajını aş", unlocked: totalWords >= 250 },
+      { icon: "🔥", title: "İstikrar Ateşi", desc: "5+ günlük çalışma serisi yakala", unlocked: streak >= 5 },
+      { icon: "⚡", title: "Hız Şampiyonu", desc: "Eşleştirmeyi 20 sn altında bitir", unlocked: Boolean(bestMatch && bestMatch < 20) },
+      { icon: "🎯", title: "Keskin Nişancı", desc: "100+ doğru cevap ver", unlocked: totalCorrect >= 100 },
+      { icon: "🧠", title: "Hafıza Üstadı", desc: "30+ kelimede uzmanlaş", unlocked: masteredWords >= 30 },
+      { icon: "👑", title: "Çalışma Maratoncusu", desc: "Toplam 500+ pratik tamamla", unlocked: totalPractices >= 500 }
+    ];
+
+    return { xp, totalPractices, curTier, progressPct, badges };
+  },
+
+  // Ses Açma / Kapama Yönetimi (Üst Çubuk Genel Ses Kontrolü)
+  applySoundSetting() {
+    const enabled = this.state.soundEnabled !== false;
+    this.fcAutoSpeak = enabled;
+    const topBtn = document.getElementById("sound-toggle-btn");
+    if (topBtn) {
+      topBtn.innerHTML = enabled ? "🔊 Ses: Açık" : "🔇 Ses: Kapalı";
+      topBtn.style.borderColor = enabled ? "" : "var(--danger)";
+      topBtn.style.color = enabled ? "" : "var(--danger)";
+    }
+    const fcBtn = document.getElementById("fc-autospeak-btn");
+    if (fcBtn) {
+      fcBtn.textContent = `🔊 Otomatik Ses: ${enabled ? "Açık" : "Kapalı"}`;
+    }
+  },
+
+  toggleSound() {
+    this.state.soundEnabled = this.state.soundEnabled === false ? true : false;
+    if (!this.state.soundEnabled && "speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+    }
+    this.applySoundSetting();
     this.saveState();
+    this.toast(this.state.soundEnabled ? "🔊 Sesli telaffuz açıldı." : "🔇 Sesli telaffuz kapatıldı.");
   },
 
   // Sesli Telaffuz Motoru
   speak(text, lang = "en-US", audioUrl = "") {
-    if (!text) return;
+    if (!text || this.state.soundEnabled === false) return;
     if (audioUrl) {
       const audio = new Audio(audioUrl);
       audio.play().catch(() => this.speakFallback(text, lang));
@@ -652,6 +901,15 @@ const App = {
     this.toast("🌍 Genel Kelime Paketi (Tüm Kelimeler) seçildi.");
   },
 
+  openHardWordsPackage() {
+    this.state.selectedDeckId = "hard";
+    this.saveState();
+    this.populateDeckSelectors();
+    this.navigate("notebook");
+    const count = this.getHardWords().length;
+    this.toast(`🔥 Zorlandığım Kelimeler Akıllı Paketi açıldı (${count} kelime). Hemen Karma Öğren veya Kartlarla çalışabilirsiniz!`);
+  },
+
   selectDeck(deckId, openNotebookView = false) {
     this.state.selectedDeckId = deckId;
     this.saveState();
@@ -681,6 +939,15 @@ const App = {
         type: "range",
         start,
         end
+      };
+    }
+    if (id === "hard") {
+      return {
+        id: "hard",
+        name: "Zorlandığım Kelimeler (Akıllı Hata Defteri)",
+        description: "Testlerde, yazma modunda veya kartlarda hata yaptığınız kelimelerin otomatik akıllı paketi.",
+        icon: "🔥",
+        type: "hard"
       };
     }
     if (id === "all") {
@@ -719,6 +986,10 @@ const App = {
         badgeEl.textContent = "🌍 Genel Paket Modu";
         badgeEl.style.background = "var(--info-soft)";
         badgeEl.style.color = "var(--info)";
+      } else if (deck.id === "hard") {
+        badgeEl.textContent = "🔥 Akıllı Zorlu Kelimeler Paketi";
+        badgeEl.style.background = "var(--danger-soft)";
+        badgeEl.style.color = "var(--danger)";
       } else if (deck.type === "range") {
         badgeEl.textContent = "🗓️ Çoklu Gün Modu (Seçili Günler Birlikte)";
         badgeEl.style.background = "var(--warning-soft)";
@@ -761,6 +1032,9 @@ const App = {
       clearInterval(this.matchTimerId);
       this.matchTimerId = null;
     }
+    if (this.readingPodcastActive && viewName !== "reading") {
+      this.stopReadingPodcast();
+    }
 
     this.updateActiveNotebookBanner();
 
@@ -792,6 +1066,12 @@ const App = {
       case "match":
         this.initMatchGame();
         break;
+      case "scramble":
+        this.initScrambleMode();
+        break;
+      case "reading":
+        this.initReadingMode();
+        break;
       case "stats":
         this.renderStats();
         break;
@@ -803,6 +1083,9 @@ const App = {
 
   getActiveWords() {
     const id = this.state.selectedDeckId;
+    if (id === "hard") {
+      return this.getHardWords();
+    }
     if (id === "all") {
       return this.state.words;
     }
@@ -932,7 +1215,9 @@ const App = {
     });
 
     if (globalSel) {
+      const hardCount = this.getHardWords().length;
       let html = `<option value="all">🌍 Genel Kelime Paketi (Tümü: ${this.state.words.length})</option>`;
+      html += `<option value="hard">🔥 Zorlandığım Kelimeler (Akıllı Paket: ${hardCount})</option>`;
 
       // Çoklu gün seçenekleri
       const last7 = this.makeRangeId(this.addDaysIso(today, -6), today);
@@ -1085,6 +1370,7 @@ const App = {
     };
 
     setEl("nav-total-words", totalWords);
+    setEl("nav-hard-words", this.getHardWords().length);
     setEl("nav-today-words", todayWordsCount);
     setEl("nav-due-count", globalDueCount);
     setEl("stat-total", activeWords.length);
@@ -1092,6 +1378,28 @@ const App = {
     setEl("stat-mastered", masteredWords);
     setEl("stat-accuracy", `%${accuracy}`);
     setEl("streak-count", this.state.streak ?? 0);
+
+    // Seri Dondurma Kalkanı göstergesi
+    const shieldEl = document.getElementById("streak-shield-indicator");
+    const pillBox = document.getElementById("streak-pill-box");
+    const frozenCount = this._frozenDatesSet ? this._frozenDatesSet.size : 0;
+    const remShields = this._shieldsRemaining ?? 2;
+    if (shieldEl) {
+      shieldEl.textContent = frozenCount > 0 ? "🛡️" : (remShields > 0 ? "🛡️" : "");
+      shieldEl.style.opacity = frozenCount > 0 ? "1" : "0.7";
+    }
+    if (pillBox) {
+      pillBox.title = frozenCount > 0
+        ? `🔥 ${this.state.streak} Günlük Seri! (${frozenCount} günlük boşluk Seri Dondurma Kalkanı 🛡️ ile korundu • Kalan kalkan: ${remShields})`
+        : `🔥 ${this.state.streak} Günlük Seri • Haftalık ${remShields} Seri Dondurma Kalkanı 🛡️ hazır`;
+    }
+
+    // Seviye (XP) Çubuğu Güncellemesi
+    const { xp, curTier, progressPct } = this.getXPAndAchievements();
+    setEl("sidebar-lvl-title", `⭐ Sv.${curTier.lvl} • ${curTier.title}`);
+    setEl("sidebar-xp-text", `${xp} XP`);
+    const xpBar = document.getElementById("sidebar-xp-bar");
+    if (xpBar) xpBar.style.width = `${progressPct}%`;
 
     const prog = Math.min(this.state.dailyProgress || 0, this.state.dailyGoal || 15);
     const goal = this.state.dailyGoal || 15;
@@ -1300,6 +1608,10 @@ const App = {
       </button>`;
 
     let html = tab("all", "🌍 Genel Paket", this.state.words.length);
+    const hardLen = this.getHardWords().length;
+    if (hardLen > 0 || current === "hard") {
+      html += tab("hard", "🔥 Zorlandıklarım", hardLen, current === "hard" ? "" : "border-color:rgba(239,68,68,0.4); color:var(--danger);");
+    }
 
     if (this.isRangeSelection(current)) {
       const { start, end } = this.parseRange(current);
@@ -1451,6 +1763,7 @@ const App = {
         if (data) {
           if (data.phonetic && !w.phonetic) w.phonetic = data.phonetic;
           if (data.pos && (!w.pos || w.pos === "noun")) w.pos = data.pos;
+          if (data.cefr && !w.cefr) w.cefr = data.cefr;
           if (Array.isArray(data.synonyms) && data.synonyms.length > 0 && (!w.synonyms || slangRe.test(w.synonyms))) {
             w.synonyms = data.synonyms.slice(0, 5).join(", ");
           }
@@ -1469,6 +1782,63 @@ const App = {
     this.saveState();
     this.renderNotebook();
     this.toast(`✨ ${updatedCount} kelimenin eksik okunuş, örnek cümle ve akademik eş anlamlıları tamamlandı!`);
+  },
+
+  // Tek Tıkla Yan Anlam Ayıklayıcı (Anlam Etiketleri / Meaning Pruner Chips)
+  renderMeaningChips(inputId, containerId) {
+    const input = document.getElementById(inputId);
+    const box = document.getElementById(containerId);
+    if (!input || !box) return;
+
+    const parts = (input.value || "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    if (parts.length <= 1) {
+      box.style.display = "none";
+      box.innerHTML = "";
+      return;
+    }
+
+    box.style.display = "flex";
+    box.innerHTML = `
+      <span style="font-size:11.5px; color:var(--text-muted); align-self:center;">🏷️ Anlam Seçici (İstenmeyeni sil):</span>
+      ${parts.map((p, idx) => `
+        <span class="meaning-chip-edit">
+          <span>${this.escapeHtml(p)}</span>
+          <span class="meaning-chip-remove" title="Bu yan anlamı çıkar" onclick="App.removeMeaningChip('${inputId}', '${containerId}', ${idx})">✕</span>
+        </span>
+      `).join("")}
+    `;
+  },
+
+  removeMeaningChip(inputId, containerId, removeIdx) {
+    const input = document.getElementById(inputId);
+    if (!input) return;
+    const parts = (input.value || "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (parts.length <= 1) return;
+    parts.splice(removeIdx, 1);
+    input.value = parts.join(", ");
+    this.renderMeaningChips(inputId, containerId);
+  },
+
+  removeCardMeaningItem(wordId, removeIdx) {
+    const w = this.state.words.find(item => item.id === wordId);
+    if (!w) return;
+    const parts = (w.meaning || "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (parts.length <= 1) return;
+    const removed = parts.splice(removeIdx, 1)[0];
+    w.meaning = parts.join(", ");
+    this.saveState();
+    this.renderNotebook();
+    this.toast(`✂️ "${removed}" yan anlamı "${w.term}" kartından çıkarıldı.`);
   },
 
   async quickEntryAutoTranslate() {
@@ -1496,7 +1866,10 @@ const App = {
       btn.textContent = "✨ Oto-Çevir";
     }
 
-    if (data.meaning && meaningInput) meaningInput.value = data.meaning;
+    if (data.meaning && meaningInput) {
+      meaningInput.value = data.meaning;
+      this.renderMeaningChips("qe-meaning", "qe-meaning-chips");
+    }
     if (data.example && exampleInput && !exampleInput.value) exampleInput.value = data.example;
 
     this.speak(term);
@@ -1544,6 +1917,7 @@ const App = {
       meaning,
       phonetic: meta?.phonetic || "",
       pos: meta?.pos || "noun",
+      cefr: meta?.cefr || "",
       synonyms: Array.isArray(meta?.synonyms) ? meta.synonyms.slice(0, 5).join(", ") : "",
       example,
       exampleTr: meta?.exampleTr || "",
@@ -1565,6 +1939,7 @@ const App = {
     if (termInput) termInput.value = "";
     if (meaningInput) meaningInput.value = "";
     if (exampleInput) exampleInput.value = "";
+    this.renderMeaningChips("qe-meaning", "qe-meaning-chips");
     this.checkQuickEntryDuplicate("");
 
     this.saveState();
@@ -1658,7 +2033,18 @@ const App = {
     listEl.innerHTML = words.map(w => {
       const dObj = deckMap[w.deckId] || { name: "Genel", icon: "📘" };
       const st = w.status || "new";
+      const cefr = this.getWordCEFR(w);
       const safeTerm = this.escapeAttr(w.term);
+      const meaningParts = (w.meaning || "").split(",").map(s => s.trim()).filter(Boolean);
+      const meaningHtml = meaningParts.length > 1
+        ? `<div class="card-meaning-pills">${meaningParts.map((mp, idx) => `
+            <span class="card-meaning-pill">
+              <span>${this.escapeHtml(mp)}</span>
+              <span class="pill-del" title="Bu yan anlamı çıkar" onclick="App.removeCardMeaningItem('${w.id}', ${idx})">✕</span>
+            </span>
+          `).join("")}</div>`
+        : `<div class="word-meaning">${this.escapeHtml(w.meaning)}</div>`;
+
       return `
         <div class="word-card">
           <div class="word-card-top">
@@ -1667,6 +2053,7 @@ const App = {
                 <span class="word-term">${this.escapeHtml(w.term)}</span>
                 ${w.phonetic ? `<span class="word-phonetic">${this.escapeHtml(w.phonetic)}</span>` : ""}
                 ${w.pos ? `<span class="pos-badge">${this.escapeHtml(w.pos)}</span>` : ""}
+                <span class="cefr-badge cefr-${cefr}" title="Tahmini Akademik Zorluk Seviyesi">${cefr}</span>
               </div>
             </div>
             <div style="display:flex; gap:6px;">
@@ -1680,7 +2067,7 @@ const App = {
             </div>
           </div>
 
-          <div class="word-meaning">${this.escapeHtml(w.meaning)}</div>
+          ${meaningHtml}
 
           ${w.synonyms ? `<div style="font-size:12px; color:var(--text-secondary);"><b>Eş Anlam:</b> ${this.escapeHtml(w.synonyms)}</div>` : ""}
 
@@ -1812,6 +2199,7 @@ const App = {
       phonetic: builtin ? builtin.phonetic : "",
       audio: "",
       pos: builtin ? builtin.pos : "noun",
+      cefr: builtin?.cefr || "",
       meaning: builtin ? builtin.meaning : "",
       alternatives: [],
       definitions: [],
@@ -1845,6 +2233,7 @@ const App = {
           if (en.phonetic && !result.phonetic) result.phonetic = en.phonetic;
           if (en.audio) result.audio = en.audio;
           if (en.pos && !builtin) result.pos = en.pos;
+          if (en.cefr) result.cefr = en.cefr;
           if (en.definitions && en.definitions.length) {
             result.definitions = en.definitions;
           }
@@ -1929,12 +2318,21 @@ const App = {
 
       if (dmResp.status === "fulfilled" && dmResp.value.ok) {
         const dmData = await dmResp.value.json();
-        if (Array.isArray(dmData) && dmData[0] && result.definitions.length === 0) {
-          const posMap = { n: "noun", v: "verb", adj: "adjective", adv: "adverb" };
-          result.definitions = (dmData[0].defs || []).slice(0, 3).map(d => {
-            const [p, text] = d.split("\t");
-            return { pos: posMap[p] || p, definition: text || d, example: "" };
-          });
+        if (Array.isArray(dmData) && dmData[0]) {
+          const freqTag = (dmData[0].tags || []).find(t => typeof t === "string" && t.startsWith("f:"));
+          if (freqTag && !result.cefr) {
+            const freq = parseFloat(freqTag.slice(2));
+            if (!isNaN(freq)) {
+              result.cefr = freq >= 25 ? "A2" : freq >= 8 ? "B1" : freq >= 2.2 ? "B2" : freq >= 0.4 ? "C1" : "C2";
+            }
+          }
+          if (result.definitions.length === 0) {
+            const posMap = { n: "noun", v: "verb", adj: "adjective", adv: "adverb" };
+            result.definitions = (dmData[0].defs || []).slice(0, 3).map(d => {
+              const [p, text] = d.split("\t");
+              return { pos: posMap[p] || p, definition: text || d, example: "" };
+            });
+          }
         }
       }
     } catch (_) {}
@@ -1961,7 +2359,8 @@ const App = {
     this.lastDictResult = res;
 
     const deck = this.getSelectedDeckObject();
-    const targetName = deck.id === "all" ? "Bugünün Günlük Defteri" : deck.name;
+    const targetName = this.isVirtualSelection(deck.id) ? "Bugünün Günlük Defteri" : deck.name;
+    const cefr = res.cefr || this.getWordCEFR(res);
 
     container.innerHTML = `
       <div class="dict-result-card">
@@ -1971,6 +2370,7 @@ const App = {
               <h2 style="font-size:32px; font-weight:800;">${this.escapeHtml(res.term)}</h2>
               ${res.phonetic ? `<span class="word-phonetic" style="font-size:17px;">${this.escapeHtml(res.phonetic)}</span>` : ""}
               ${res.pos ? `<span class="pos-badge" style="font-size:13px;">${this.escapeHtml(res.pos)}</span>` : ""}
+              <span class="cefr-badge cefr-${cefr}" style="font-size:12px;" title="CEFR Akademik Zorluk Seviyesi">🎓 ${cefr}</span>
               <button class="btn btn-secondary btn-sm" onclick="App.speak('${this.escapeAttr(res.term)}', 'en-US', '${this.escapeAttr(res.audio)}')">
                 🔊 Amerikan (US)
               </button>
@@ -2216,6 +2616,10 @@ const App = {
     if (badge) badge.textContent = `${Math.max(0, remaining)} Kelime Kaldı`;
 
     if (this.srsIndex >= this.srsQueue.length) {
+      if (this.srsQueue.length > 0) {
+        this.launchConfetti();
+        this.playFeedbackChime("celebrate");
+      }
       const scopeName = this.srsScope === "global" ? "Tüm Günler" : this.getSelectedDeckObject().name;
       container.innerHTML = `
         <div class="study-box" style="text-align:center; padding:48px 28px;">
@@ -2464,6 +2868,8 @@ const App = {
     `;
 
     if (!this.learnCurrent) {
+      this.launchConfetti();
+      this.playFeedbackChime("celebrate");
       container.innerHTML = `
         ${stagesHeaderHtml}
         <div class="study-box" style="text-align:center; padding:44px 28px;">
@@ -2602,6 +3008,7 @@ const App = {
       w.nextReview = Date.now();
     }
 
+    this.playFeedbackChime(isCorrect ? "correct" : "wrong");
     this.speak(w.term);
     this.recordStudyAction();
 
@@ -2633,6 +3040,7 @@ const App = {
 
     this.learnAnswered = true;
     const isCorrect = this.isWriteAnswerMatch(userVal, w, true);
+    this.playFeedbackChime(isCorrect ? "correct" : "wrong");
     this.speak(w.term);
 
     if (isCorrect) {
@@ -2706,9 +3114,7 @@ const App = {
   },
 
   toggleAutoSpeak() {
-    this.fcAutoSpeak = !this.fcAutoSpeak;
-    const btn = document.getElementById("fc-autospeak-btn");
-    if (btn) btn.textContent = `🔊 Otomatik Ses: ${this.fcAutoSpeak ? "Açık" : "Kapalı"}`;
+    this.toggleSound();
   },
 
   renderFlashcard() {
@@ -2951,6 +3357,7 @@ const App = {
       btnEl.classList.add("wrong");
     }
 
+    this.playFeedbackChime(isCorrect ? "correct" : "wrong");
     this.speak(current.example || current.term);
     this.recordStudyAction();
 
@@ -3151,6 +3558,7 @@ const App = {
     const askTrWriteEn = this.writeDictationOnly || this.writePromptLang !== "en";
     const isCorrect = this.isWriteAnswerMatch(userVal, w, askTrWriteEn);
     this.writeAnswered = true;
+    this.playFeedbackChime(isCorrect ? "correct" : "wrong");
     this.speak(w.term);
     this.recordStudyAction();
 
@@ -3247,6 +3655,10 @@ const App = {
 
     if (this.quizIndex >= this.quizList.length) {
       const pct = this.quizList.length > 0 ? Math.round((this.quizScore / this.quizList.length) * 100) : 0;
+      if (pct >= 80 && this.quizList.length > 0) {
+        this.launchConfetti();
+        this.playFeedbackChime("celebrate");
+      }
       container.innerHTML = `
         <div class="study-box" style="text-align:center;">
           <div style="font-size:52px; margin-bottom:8px;">🎯</div>
@@ -3339,6 +3751,7 @@ const App = {
       btnEl.classList.add("wrong");
     }
 
+    this.playFeedbackChime(isCorrect ? "correct" : "wrong");
     this.recordStudyAction();
     setTimeout(() => {
       this.quizIndex += 1;
@@ -3446,6 +3859,7 @@ const App = {
       prevEl?.classList.add("matched");
       domEl.classList.add("matched");
       this.matchMatchedCount += 2;
+      this.playFeedbackChime("correct");
 
       if (this.matchMatchedCount >= this.matchTiles.length) {
         clearInterval(this.matchTimerId);
@@ -3456,6 +3870,8 @@ const App = {
           this.state.bestMatchTime = finalTime;
           isNewRecord = true;
         }
+        this.launchConfetti();
+        this.playFeedbackChime("celebrate");
         this.recordStudyAction();
         const container = document.getElementById("match-container");
         if (container) {
@@ -3470,6 +3886,7 @@ const App = {
         }
       }
     } else {
+      this.playFeedbackChime("wrong");
       domEl.classList.add("mismatch");
       prevEl?.classList.remove("selected");
       prevEl?.classList.add("mismatch");
@@ -3480,10 +3897,470 @@ const App = {
     }
   },
 
-  // 10. İSTATİSTİKLER
+  // 9B. HARF BLOKLARI — KELİME İNŞASI OYUNU (WORD SCRAMBLE)
+  initScrambleMode() {
+    const active = this.getActiveWords();
+    this.scrambleList = this.shuffleArray([...active]);
+    this.scrambleIndex = 0;
+    this.scrambleScore = 0;
+    this.prepareScrambleWord();
+  },
+
+  prepareScrambleWord() {
+    const container = document.getElementById("scramble-container");
+    if (!container) return;
+
+    if (this.scrambleList.length === 0) {
+      container.innerHTML = this.getEmptyDeckStudyHtml();
+      return;
+    }
+
+    if (this.scrambleIndex >= this.scrambleList.length) {
+      this.launchConfetti();
+      this.playFeedbackChime("celebrate");
+      container.innerHTML = `
+        <div class="study-box" style="text-align:center; padding:44px 24px;">
+          <div style="font-size:52px; margin-bottom:10px;">🔤🏆</div>
+          <h2>Harf Blokları Turu Tamamlandı!</h2>
+          <p style="color:var(--text-secondary); margin:8px 0 22px;">
+            Seçili defterdeki <b>${this.scrambleList.length}</b> kelimeden <b>${this.scrambleScore}</b> tanesini doğru inşa ettin!
+          </p>
+          <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="App.initScrambleMode()">🔄 Yeni Tur Başlat</button>
+            <button class="btn btn-secondary" onclick="App.navigate('reading')">📖 Bağlamsal Okuma Moduna Geç</button>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    const w = this.scrambleList[this.scrambleIndex];
+    const clean = (w.term || "").trim().toLowerCase();
+    const chars = Array.from(clean);
+
+    // Boşluk veya tire gibi ayraçları sabit yuva yap; harfleri havuza koyup karıştır
+    this.scrambleSlots = [];
+    const letterTiles = [];
+    chars.forEach((ch, idx) => {
+      if (/[a-z]/i.test(ch)) {
+        this.scrambleSlots.push({ expected: ch, char: "", tileId: null, fixed: false });
+        letterTiles.push({ id: `st-${idx}`, char: ch, used: false });
+      } else {
+        this.scrambleSlots.push({ expected: ch, char: ch, tileId: null, fixed: true });
+      }
+    });
+
+    this.scramblePool = this.shuffleArray(letterTiles);
+    // Aynı sırada gelmesin (2+ harfli kelimelerde)
+    if (this.scramblePool.length > 2 && this.scramblePool.map(t => t.char).join("") === letterTiles.map(t => t.char).join("")) {
+      this.scramblePool.reverse();
+    }
+    this.scrambleAnswered = false;
+    this.renderScrambleCard();
+  },
+
+  renderScrambleCard(wrongShake = false) {
+    const container = document.getElementById("scramble-container");
+    if (!container) return;
+    const w = this.scrambleList[this.scrambleIndex];
+    if (!w) return;
+
+    const safeTerm = this.escapeAttr(w.term);
+    const cefr = this.getWordCEFR(w);
+
+    container.innerHTML = `
+      <div class="study-box" style="text-align:center;">
+        <div style="display:flex; justify-content:space-between; align-items:center; font-size:13px; color:var(--text-muted); margin-bottom:14px;">
+          <span>Kelime <b>${this.scrambleIndex + 1} / ${this.scrambleList.length}</b> • ${this.escapeHtml(this.getWordOriginLabel(w))}</span>
+          <span>Doğru: <b>${this.scrambleScore}</b></span>
+        </div>
+
+        <div style="margin-bottom:6px;">
+          <span class="pos-badge">${this.escapeHtml(w.pos || "word")}</span>
+          <span class="cefr-badge cefr-${cefr}" style="margin-left:6px;">🎓 ${cefr}</span>
+          <button class="btn-icon" style="margin-left:8px; vertical-align:middle;" onclick="App.speak('${safeTerm}')" title="Sesli İpucu Dinle">🔊</button>
+        </div>
+
+        <div style="font-size:27px; font-weight:800; color:var(--success); margin:8px 0;">
+          🇹🇷 ${this.escapeHtml(w.meaning)}
+        </div>
+        ${w.synonyms ? `<div style="font-size:13px; color:var(--text-secondary); margin-bottom:6px;">🔗 Eş Anlam İpucu: ${this.escapeHtml(w.synonyms)}</div>` : ""}
+        ${w.example ? `<div style="font-size:13.5px; color:var(--text-muted); font-style:italic; margin-bottom:8px;">"${this.escapeHtml(this.maskWordInSentence(w.example, w.term))}"</div>` : ""}
+
+        <div class="scramble-slots" id="scramble-slots-box" style="${wrongShake ? "border-color:var(--danger); animation:shake 0.35s;" : ""}">
+          ${this.scrambleSlots.map((sl, sIdx) => {
+            if (sl.fixed) {
+              return `<div class="scramble-slot space-slot">${sl.expected === " " ? "" : this.escapeHtml(sl.expected)}</div>`;
+            }
+            return `
+              <div
+                class="scramble-slot ${sl.char ? "filled" : ""}"
+                style="${this.scrambleAnswered ? "border-color:var(--success); background:var(--success-soft); color:var(--success); box-shadow:0 3px 0 var(--success);" : ""}"
+                onclick="App.unpickScrambleSlot(${sIdx})"
+                title="${sl.char ? "Geri almak için tıkla" : ""}"
+              >${this.escapeHtml(sl.char)}</div>
+            `;
+          }).join("")}
+        </div>
+
+        <div class="scramble-pool">
+          ${this.scramblePool.map(t => `
+            <button
+              class="scramble-tile"
+              ${t.used || this.scrambleAnswered ? "disabled" : ""}
+              onclick="App.pickScrambleTile('${t.id}')"
+            >${this.escapeHtml(t.char)}</button>
+          `).join("")}
+        </div>
+
+        <div style="display:flex; justify-content:center; gap:10px; margin-top:18px; flex-wrap:wrap;">
+          ${this.scrambleAnswered ? `
+            <button class="btn btn-primary" onclick="App.nextScrambleWord()">Sonraki Kelime (Enter) ➡️</button>
+          ` : `
+            <button class="btn btn-secondary btn-sm" onclick="App.giveScrambleHint()">💡 İpucu Harf Yerleştir</button>
+            <button class="btn btn-secondary btn-sm" onclick="App.shuffleScramblePool()">🔀 Harfleri Karıştır</button>
+            <button class="btn btn-secondary btn-sm" onclick="App.clearScrambleSlots()">🧹 Temizle</button>
+            <button class="btn btn-secondary btn-sm" onclick="App.skipScrambleWord()">Atla ➡️</button>
+          `}
+        </div>
+
+        <div id="scramble-feedback" style="margin-top:16px;">
+          ${this.scrambleAnswered ? `
+            <div style="padding:12px 16px; border-radius:var(--radius-md); background:var(--success-soft); color:var(--success); font-weight:700;">
+              🎉 Harika! <b>"${this.escapeHtml(w.term)}"</b> kelimesini doğru dizdin! ${w.phonetic ? `<span style="font-weight:500;">(${this.escapeHtml(w.phonetic)})</span>` : ""}
+            </div>
+          ` : wrongShake ? `
+            <div style="padding:10px 14px; border-radius:var(--radius-md); background:var(--danger-soft); color:var(--danger); font-size:13.5px; font-weight:600;">
+              🤔 Harf sırası tam tutmadı! Silmek için kutucuklara tıklayabilir veya <b>Backspace</b> tuşuna basabilirsin.
+            </div>
+          ` : ""}
+        </div>
+      </div>
+    `;
+  },
+
+  pickScrambleTile(tileId) {
+    if (this.scrambleAnswered) return;
+    const tile = this.scramblePool.find(t => t.id === tileId && !t.used);
+    const emptySlot = this.scrambleSlots.find(s => !s.fixed && !s.char);
+    if (!tile || !emptySlot) return;
+
+    tile.used = true;
+    emptySlot.char = tile.char;
+    emptySlot.tileId = tile.id;
+    this.evaluateScrambleIfFull();
+  },
+
+  typeScrambleKey(ch) {
+    if (this.scrambleAnswered) return;
+    const lower = ch.toLowerCase();
+    const tile = this.scramblePool.find(t => !t.used && t.char === lower);
+    if (tile) this.pickScrambleTile(tile.id);
+  },
+
+  unpickScrambleSlot(slotIdx) {
+    if (this.scrambleAnswered) return;
+    const sl = this.scrambleSlots[slotIdx];
+    if (!sl || sl.fixed || !sl.char) return;
+    const tile = this.scramblePool.find(t => t.id === sl.tileId);
+    if (tile) tile.used = false;
+    sl.char = "";
+    sl.tileId = null;
+    this.renderScrambleCard(false);
+  },
+
+  unpickLastScrambleSlot() {
+    if (this.scrambleAnswered) return;
+    for (let i = this.scrambleSlots.length - 1; i >= 0; i--) {
+      if (!this.scrambleSlots[i].fixed && this.scrambleSlots[i].char) {
+        this.unpickScrambleSlot(i);
+        return;
+      }
+    }
+  },
+
+  clearScrambleSlots() {
+    if (this.scrambleAnswered) return;
+    this.scrambleSlots.forEach(s => {
+      if (!s.fixed) {
+        s.char = "";
+        s.tileId = null;
+      }
+    });
+    this.scramblePool.forEach(t => (t.used = false));
+    this.renderScrambleCard(false);
+  },
+
+  shuffleScramblePool() {
+    if (this.scrambleAnswered) return;
+    this.scramblePool = this.shuffleArray([...this.scramblePool]);
+    this.renderScrambleCard(false);
+  },
+
+  giveScrambleHint() {
+    if (this.scrambleAnswered) return;
+    // İlk boş (veya yanlış yerleştirilmiş) yuvayı bulup doğru harfi koy
+    const targetSlot = this.scrambleSlots.find(s => !s.fixed && s.char !== s.expected);
+    if (!targetSlot) return;
+
+    if (targetSlot.char && targetSlot.tileId) {
+      const prevTile = this.scramblePool.find(t => t.id === targetSlot.tileId);
+      if (prevTile) prevTile.used = false;
+      targetSlot.char = "";
+      targetSlot.tileId = null;
+    }
+
+    let rightTile = this.scramblePool.find(t => !t.used && t.char === targetSlot.expected);
+    if (!rightTile) {
+      // Doğru harf başka yanlış yuvada kullanılmışsa oradan geri çek
+      const wrongHolder = this.scrambleSlots.find(s => !s.fixed && s.char === targetSlot.expected && s.char !== s.expected);
+      if (wrongHolder) {
+        rightTile = this.scramblePool.find(t => t.id === wrongHolder.tileId);
+        wrongHolder.char = "";
+        wrongHolder.tileId = null;
+        if (rightTile) rightTile.used = false;
+      }
+    }
+
+    if (rightTile) {
+      rightTile.used = true;
+      targetSlot.char = rightTile.char;
+      targetSlot.tileId = rightTile.id;
+    }
+    this.evaluateScrambleIfFull();
+  },
+
+  evaluateScrambleIfFull() {
+    const allFilled = this.scrambleSlots.every(s => s.fixed || Boolean(s.char));
+    if (!allFilled) {
+      this.renderScrambleCard(false);
+      return;
+    }
+
+    const built = this.scrambleSlots.map(s => s.char).join("");
+    const expected = this.scrambleSlots.map(s => s.expected).join("");
+    const w = this.scrambleList[this.scrambleIndex];
+
+    if (built === expected) {
+      this.scrambleAnswered = true;
+      this.scrambleScore += 1;
+      if (w) {
+        w.correctCount = (w.correctCount || 0) + 1;
+        if (!w.status || w.status === "new") w.status = "familiar";
+        this.speak(w.term);
+      }
+      this.playFeedbackChime("correct");
+      this.recordStudyAction();
+      this.renderScrambleCard(false);
+    } else {
+      if (w) w.wrongCount = (w.wrongCount || 0) + 1;
+      this.playFeedbackChime("wrong");
+      this.renderScrambleCard(true);
+    }
+  },
+
+  skipScrambleWord() {
+    const w = this.scrambleList[this.scrambleIndex];
+    if (w) this.toast(`💡 Doğrusu: "${w.term}" (${w.meaning})`);
+    this.nextScrambleWord();
+  },
+
+  nextScrambleWord() {
+    this.scrambleIndex += 1;
+    this.prepareScrambleWord();
+  },
+
+  // 9C. İNTERAKTİF BAĞLAMSAL OKUMA & PODCAST DİNLEME AKIŞI (READING STREAM)
+  initReadingMode() {
+    this.stopReadingPodcast();
+    this.renderReadingStream();
+  },
+
+  toggleReadingTranslations() {
+    this.readingShowTr = !this.readingShowTr;
+    const btn = document.getElementById("reading-tr-btn");
+    if (btn) btn.textContent = `👁️ Türkçe Çeviriler: ${this.readingShowTr ? "Açık" : "Gizli"}`;
+    this.renderReadingStream();
+  },
+
+  toggleReadingMask() {
+    this.readingMaskWords = !this.readingMaskWords;
+    const btn = document.getElementById("reading-cloze-btn");
+    if (btn) btn.textContent = `🧩 Boşluklu Okuma: ${this.readingMaskWords ? "Açık" : "Kapalı"}`;
+    this.renderReadingStream();
+  },
+
+  highlightWordInReadingSentence(sentence, w) {
+    const term = (w.term || "").trim();
+    const safeSentence = this.escapeHtml(sentence);
+    if (!term) return safeSentence;
+
+    const cefr = this.getWordCEFR(w);
+    const popHtml = `
+      <span class="vocab-pop">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:6px; margin-bottom:4px;">
+          <b style="font-size:14px; color:var(--accent);">${this.escapeHtml(w.term)}</b>
+          <span class="cefr-badge cefr-${cefr}">${cefr}</span>
+        </div>
+        ${w.phonetic ? `<div style="font-size:11.5px; color:var(--text-muted); margin-bottom:3px;">${this.escapeHtml(w.phonetic)} • ${this.escapeHtml(w.pos || "")}</div>` : ""}
+        <div style="color:var(--success); font-weight:700;">🇹🇷 ${this.escapeHtml(w.meaning)}</div>
+        ${w.synonyms ? `<div style="font-size:11px; color:var(--text-secondary); margin-top:4px;">🔗 ${this.escapeHtml(w.synonyms)}</div>` : ""}
+      </span>
+    `;
+
+    const buildBadge = matchedText => {
+      const displayLabel = this.readingMaskWords ? "_______ (Üzerine Gel / Tıkla)" : matchedText;
+      return `<span class="vocab-highlight" onclick="App.speak('${this.escapeAttr(w.term)}'); this.querySelector('.vh-txt').textContent='${this.escapeAttr(matchedText)}';"><span class="vh-txt">${displayLabel}</span>${popHtml}</span>`;
+    };
+
+    const base = term.split(/\s+/)[0];
+    const candidates = [
+      term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\w*",
+      base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\w*",
+      base.length >= 5 ? "\\b" + base.slice(0, -1).replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\w*" : null
+    ].filter(Boolean);
+
+    for (const pat of candidates) {
+      const re = new RegExp(pat, "i");
+      if (re.test(safeSentence)) {
+        return safeSentence.replace(re, m => buildBadge(m));
+      }
+    }
+
+    return `${safeSentence} — ${buildBadge(this.escapeHtml(w.term))}`;
+  },
+
+  renderReadingStream() {
+    const container = document.getElementById("reading-container");
+    if (!container) return;
+
+    const words = this.getActiveWords();
+    if (words.length === 0) {
+      container.innerHTML = this.getEmptyDeckStudyHtml();
+      return;
+    }
+
+    const deck = this.getSelectedDeckObject();
+    const missingExamples = words.filter(w => !w.example || !w.example.trim()).length;
+
+    container.innerHTML = `
+      <div class="reading-paper">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; border-bottom:1px solid var(--border-color); padding-bottom:16px; margin-bottom:18px;">
+          <div>
+            <span class="pos-badge" style="margin-bottom:6px; display:inline-block;">📖 Bağlamsal Okuma & Dinleme Dergisi</span>
+            <h3 style="font-size:21px;">${this.escapeHtml(deck.name)} (${words.length} Cümle Akışı)</h3>
+          </div>
+          ${missingExamples > 0 ? `
+            <button class="btn btn-secondary btn-sm" onclick="App.enrichMissingWordsInCurrentDeck().then(()=>App.renderReadingStream())">
+              ✨ ${missingExamples} Eksik Örnek Cümleyi Otomatik Getir
+            </button>
+          ` : ""}
+        </div>
+
+        <div id="reading-sentences-list">
+          ${words.map((w, idx) => {
+            const sentence = (w.example && w.example.trim())
+              ? w.example.trim()
+              : `Understanding the word "${w.term}" helps express ideas more accurately in context.`;
+            const highlighted = this.highlightWordInReadingSentence(sentence, w);
+            const cefr = this.getWordCEFR(w);
+            const isSpeaking = this.readingPodcastActive && this.readingPodcastIndex === idx;
+
+            return `
+              <div class="reading-sentence-block ${isSpeaking ? "speaking-now" : ""}" id="reading-row-${idx}">
+                <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px;">
+                  <div style="flex:1;">
+                    <span style="font-size:12px; font-weight:800; color:var(--text-muted); margin-right:6px;">#${idx + 1}</span>
+                    ${highlighted}
+                    ${this.readingShowTr ? `
+                      <div style="font-size:13.5px; color:var(--text-secondary); margin-top:4px; padding-left:20px;">
+                        🇹🇷 ${this.escapeHtml(w.exampleTr || `${w.term}: ${w.meaning}`)}
+                      </div>
+                    ` : ""}
+                  </div>
+                  <div style="display:flex; align-items:center; gap:6px; flex-shrink:0;">
+                    <span class="cefr-badge cefr-${cefr}">${cefr}</span>
+                    <button class="btn-icon" style="width:30px; height:30px; font-size:13px;" onclick="App.speak('${this.escapeAttr(sentence)}')" title="Bu cümleyi sesli dinle">🔊</button>
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      </div>
+    `;
+  },
+
+  stopReadingPodcast() {
+    this.readingPodcastActive = false;
+    this.readingPodcastIndex = -1;
+    if ("speechSynthesis" in window) window.speechSynthesis.cancel();
+    const btn = document.getElementById("reading-podcast-btn");
+    if (btn) btn.innerHTML = "🎧 Tümünü Sesli Oku (Podcast)";
+    document.querySelectorAll(".reading-sentence-block.speaking-now").forEach(el => el.classList.remove("speaking-now"));
+  },
+
+  toggleReadingPodcast() {
+    if (this.readingPodcastActive) {
+      this.stopReadingPodcast();
+      return;
+    }
+    if (this.state.soundEnabled === false) {
+      this.toast("🔇 Ses şu an kapalı! Podcast dinlemek için üst çubuktan 'Ses: Açık' yapın.");
+      return;
+    }
+    if (!("speechSynthesis" in window)) {
+      this.toast("⚠️ Tarayıcınız sesli okuma özelliğini desteklemiyor.");
+      return;
+    }
+
+    const words = this.getActiveWords();
+    if (!words.length) return;
+
+    this.readingPodcastActive = true;
+    this.readingPodcastIndex = 0;
+    const btn = document.getElementById("reading-podcast-btn");
+    if (btn) btn.innerHTML = "⏹️ Podcast Okumayı Durdur";
+
+    const playStep = idx => {
+      if (!this.readingPodcastActive || idx >= words.length) {
+        this.stopReadingPodcast();
+        return;
+      }
+      this.readingPodcastIndex = idx;
+      document.querySelectorAll(".reading-sentence-block").forEach((el, i) => {
+        el.classList.toggle("speaking-now", i === idx);
+      });
+      document.getElementById(`reading-row-${idx}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+
+      const w = words[idx];
+      const sentence = (w.example && w.example.trim()) ? w.example.trim() : w.term;
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(`${w.term}. ${sentence}`);
+      utter.lang = "en-US";
+      utter.rate = 0.92;
+      const voices = window.speechSynthesis.getVoices();
+      const preferred = voices.find(v => v.lang.startsWith("en") && (v.name.includes("Natural") || v.name.includes("Google") || v.name.includes("Zira"))) || voices.find(v => v.lang.startsWith("en"));
+      if (preferred) utter.voice = preferred;
+      utter.onend = () => {
+        if (this.readingPodcastActive) {
+          setTimeout(() => playStep(idx + 1), 420);
+        }
+      };
+      utter.onerror = () => this.stopReadingPodcast();
+      window.speechSynthesis.speak(utter);
+    };
+
+    playStep(0);
+  },
+
+  // 10. İSTATİSTİKLER, XP ROZET VİTRİNİ & GITHUB ISI HARİTASI
   renderStats() {
     const container = document.getElementById("stats-container");
     if (!container) return;
+
+    this.recalculateStreak();
+    const xpInfo = this.getXPAndAchievements();
 
     const pool = this.getActiveWords();
     const counts = { new: 0, learning: 0, familiar: 0, mastered: 0 };
@@ -3502,16 +4379,80 @@ const App = {
     for (let i = 6; i >= 0; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      const key = `${y}-${m}-${day}`;
+      const key = this.isoFromDate(d);
       const val = (this.state.studyHistory && this.state.studyHistory[key]) || 0;
+      const [, m, day] = key.split("-");
       last7Days.push({ label: `${day}.${m}`, count: val, isToday: i === 0 });
     }
     const maxDayCount = Math.max(this.state.dailyGoal || 15, ...last7Days.map(d => d.count), 1);
 
+    // GitHub Tarzı Son 20 Haftalık (140 Gün) Çalışma Isı Haritası
+    const todayDate = new Date();
+    const todayDow = (todayDate.getDay() + 6) % 7; // Pazartesi=0 .. Pazar=6
+    const totalCols = 20;
+    const startOffset = (totalCols - 1) * 7 + todayDow;
+    const activeSet = this.getActiveStudyDaysSet();
+    const frozenSet = this._frozenDatesSet || new Set();
+    const heatmapCells = [];
+
+    for (let offset = startOffset; offset >= 0; offset--) {
+      const d = new Date();
+      d.setDate(todayDate.getDate() - offset);
+      const iso = this.isoFromDate(d);
+      const histVal = (this.state.studyHistory && this.state.studyHistory[iso]) || 0;
+      const addedWords = this.getWordCountForDate(iso);
+      const score = histVal + addedWords * 2;
+      const isFrozen = frozenSet.has(iso) && !activeSet.has(iso);
+
+      let lvlClass = "";
+      if (isFrozen) lvlClass = "hm-freeze";
+      else if (score >= 30) lvlClass = "hm-lvl-4";
+      else if (score >= 15) lvlClass = "hm-lvl-3";
+      else if (score >= 5) lvlClass = "hm-lvl-2";
+      else if (score > 0 || activeSet.has(iso)) lvlClass = "hm-lvl-1";
+
+      const tip = isFrozen
+        ? `${this.formatTurkishDate(iso)}: 🛡️ Seri Dondurma Kalkanı ile korundu!`
+        : `${this.formatTurkishDate(iso)}: ${histVal} pratik, ${addedWords} eklenen kelime`;
+
+      heatmapCells.push(`<div class="hm-cell ${lvlClass}" title="${this.escapeAttr(tip)}" onclick="App.openDailyByDate('${iso}', false)"></div>`);
+    }
+
+    const unlockedCount = xpInfo.badges.filter(b => b.unlocked).length;
+
     container.innerHTML = `
+      <!-- XP Seviye Kartı & Rozet Vitrini -->
+      <div class="dict-result-card" style="margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:14px; margin-bottom:16px;">
+          <div>
+            <span class="pos-badge" style="margin-bottom:6px; display:inline-block;">⭐ Seviye ${xpInfo.curTier.lvl} • ${this.escapeHtml(xpInfo.curTier.title)}</span>
+            <h3 style="font-size:22px;">Toplam ${xpInfo.xp.toLocaleString("tr-TR")} XP Kazanıldı</h3>
+            <p style="font-size:13px; color:var(--text-secondary);">Bir sonraki ünvan için %${xpInfo.progressPct} tamamlandı • ${unlockedCount} / ${xpInfo.badges.length} Başarı Rozeti Açık</p>
+          </div>
+          <div style="min-width:220px;">
+            <div class="progress-bar-bg" style="height:10px;">
+              <div class="xp-bar-fill" style="width:${xpInfo.progressPct}%;"></div>
+            </div>
+            <div style="display:flex; justify-content:space-between; font-size:11.5px; color:var(--text-muted); margin-top:4px;">
+              <span>${xpInfo.curTier.min} XP</span>
+              <span>Hedef: ${xpInfo.curTier.max} XP</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="badges-showcase-grid">
+          ${xpInfo.badges.map(b => `
+            <div class="ach-badge-card ${b.unlocked ? "unlocked" : "locked"}">
+              <div class="ach-icon">${b.icon}</div>
+              <div>
+                <div style="font-size:13.5px; font-weight:800;">${this.escapeHtml(b.title)} ${b.unlocked ? "✅" : "🔒"}</div>
+                <div style="font-size:11.5px; color:var(--text-secondary); margin-top:2px;">${this.escapeHtml(b.desc)}</div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+
       <div class="stats-grid">
         <div class="stat-card">
           <div class="stat-icon" style="background:var(--info-soft); color:var(--info);">🆕</div>
@@ -3528,6 +4469,32 @@ const App = {
         <div class="stat-card">
           <div class="stat-icon" style="background:var(--success-soft); color:var(--success);">🏆</div>
           <div class="stat-info"><h3>${counts.mastered}</h3><p>Uzmanlaşıldı</p></div>
+        </div>
+      </div>
+
+      <!-- GitHub Tarzı 20 Haftalık Çalışma Isı Haritası -->
+      <div class="dict-result-card" style="margin-bottom:20px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px;">
+          <div>
+            <h3>🟩 Çalışma İstikrar Haritası (Son 20 Hafta)</h3>
+            <p style="font-size:12.5px; color:var(--text-secondary);">Aktif Seri: <b>🔥 ${this.state.streak} Gün</b> • Haftalık Seri Dondurma Kalkanı: <b>🛡️ ${this._remainingShields ?? 2} / 2 Hazır</b></p>
+          </div>
+          <div style="display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--text-muted);">
+            <span>Az</span>
+            <span class="hm-cell" style="display:inline-block;"></span>
+            <span class="hm-cell hm-lvl-1" style="display:inline-block;"></span>
+            <span class="hm-cell hm-lvl-2" style="display:inline-block;"></span>
+            <span class="hm-cell hm-lvl-3" style="display:inline-block;"></span>
+            <span class="hm-cell hm-lvl-4" style="display:inline-block;"></span>
+            <span>Çok</span>
+            <span class="hm-cell hm-freeze" style="display:inline-block; margin-left:8px;"></span>
+            <span>🛡️ Kalkan</span>
+          </div>
+        </div>
+        <div class="heatmap-scroll">
+          <div class="heatmap-grid">
+            ${heatmapCells.join("")}
+          </div>
         </div>
       </div>
 
@@ -3553,7 +4520,10 @@ const App = {
 
         <!-- En Çok Zorlanılan Kelimeler -->
         <div class="dict-result-card">
-          <h3 style="margin-bottom:12px;">🔥 Bu Defterde En Çok Zorlandığın Kelimeler</h3>
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:8px;">
+            <h3>🔥 En Çok Zorlandığın Kelimeler</h3>
+            ${this.getHardWords().length > 0 ? `<button class="btn btn-secondary btn-sm" onclick="App.openHardWordsPackage()">🔥 Tümünü Çalış ➔</button>` : ""}
+          </div>
           ${hardWords.length === 0 ? `
             <p style="color:var(--text-secondary);">Seçili defterde henüz hata yaptığın kelime kaydedilmedi.</p>
           ` : `
@@ -3941,9 +4911,11 @@ const App = {
 
     const deckSel = document.getElementById("wm-deck");
     if (deckSel) {
-      deckSel.value = existing?.deckId || (this.state.selectedDeckId !== "all" ? this.state.selectedDeckId : this.getTodayDailyDeckId());
+      deckSel.value = existing?.deckId || (!this.isVirtualSelection(this.state.selectedDeckId) ? this.state.selectedDeckId : this.getTodayDailyDeckId());
     }
 
+    this._wmCefr = src.cefr || "";
+    this.renderMeaningChips("wm-meaning", "wm-meaning-chips");
     this.checkWordModalDuplicate(src.term || "");
     modal.classList.add("open");
     setTimeout(() => document.getElementById("wm-term")?.focus(), 50);
@@ -3970,9 +4942,13 @@ const App = {
       btn.textContent = "✨ Sözlükten Otomatik Doldur";
     }
 
-    if (data.meaning) document.getElementById("wm-meaning").value = data.meaning;
+    if (data.meaning) {
+      document.getElementById("wm-meaning").value = data.meaning;
+      this.renderMeaningChips("wm-meaning", "wm-meaning-chips");
+    }
     if (data.phonetic) document.getElementById("wm-phonetic").value = data.phonetic;
     if (data.pos) document.getElementById("wm-pos").value = data.pos;
+    if (data.cefr) this._wmCefr = data.cefr;
     if (data.synonyms?.length) document.getElementById("wm-synonyms").value = data.synonyms.slice(0, 5).join(", ");
     if (data.example) document.getElementById("wm-example").value = data.example;
     if (data.exampleTr) document.getElementById("wm-example-tr").value = data.exampleTr;
@@ -4002,6 +4978,7 @@ const App = {
       meaning,
       phonetic: document.getElementById("wm-phonetic").value.trim(),
       pos: document.getElementById("wm-pos").value,
+      cefr: this._wmCefr || "",
       synonyms: document.getElementById("wm-synonyms").value.trim(),
       example: document.getElementById("wm-example").value.trim(),
       exampleTr: document.getElementById("wm-example-tr").value.trim(),
@@ -4229,6 +5206,13 @@ const App = {
 
   getWordsAndMetaForScope(scopeId) {
     const id = scopeId || this.state.selectedDeckId || "all";
+    if (id === "hard") {
+      return {
+        title: "Zorlandığım Kelimeler (Akıllı Hata Defteri)",
+        subtitle: "En çok hata yapılan kelimelerin özel tekrar kitapçığı",
+        words: this.getHardWords()
+      };
+    }
     if (id === "all") {
       return {
         title: "Genel Kelime Paketi (Tüm Kelimelerim)",
@@ -4832,6 +5816,13 @@ const App = {
   },
 
   setupKeyboardShortcuts() {
+    window.addEventListener("click", e => {
+      const pop = document.getElementById("theme-popover");
+      if (pop && pop.classList.contains("open") && !e.target.closest("#theme-popover") && !e.target.closest("#theme-toggle-btn")) {
+        pop.classList.remove("open");
+      }
+    });
+
     window.addEventListener("keydown", e => {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -4843,9 +5834,25 @@ const App = {
         this.openDeckSwitcher();
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        this.toggleSound();
+        return;
+      }
+      if (e.altKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        this.toggleZenMode();
+        return;
+      }
       if (e.key === "Escape") {
-        document.querySelectorAll(".modal-backdrop.open").forEach(m => m.classList.remove("open"));
+        const openModals = document.querySelectorAll(".modal-backdrop.open");
+        if (openModals.length > 0) {
+          openModals.forEach(m => m.classList.remove("open"));
+        } else if (document.body.classList.contains("zen-mode")) {
+          this.toggleZenMode();
+        }
         document.getElementById("top-dict-dropdown")?.classList.remove("open");
+        document.getElementById("theme-popover")?.classList.remove("open");
         return;
       }
 
@@ -4898,6 +5905,16 @@ const App = {
           if (btns[idx] && !btns[idx].disabled) btns[idx].click();
         } else if (e.key === "Enter" && this.learnAnswered) {
           this.nextLearnStep();
+        }
+      } else if (activeId === "view-scramble") {
+        if (e.key === "Backspace") {
+          e.preventDefault();
+          this.unpickLastScrambleSlot();
+        } else if (e.key === "Enter" && this.scrambleAnswered) {
+          e.preventDefault();
+          this.nextScrambleWord();
+        } else if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[a-zA-Z]$/.test(e.key)) {
+          this.typeScrambleKey(e.key);
         }
       }
     });
